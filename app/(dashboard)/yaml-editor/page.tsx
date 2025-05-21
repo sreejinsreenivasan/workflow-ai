@@ -377,7 +377,7 @@ export default function YamlEditorPage() {
       )}
 
       {/* Editor */}
-      <div className="flex-1" style={{ height: "calc(100vh - 12rem)" }}>
+      <div className="flex-1 overflow-hidden" style={{ height: "calc(100vh - 180px)" }}>
         <Editor
           height="100%"
           width="100%"
@@ -387,7 +387,7 @@ export default function YamlEditorPage() {
           onMount={handleEditorDidMount}
           options={{
             readOnly: false,
-            scrollBeyondLastLine: false,
+            scrollBeyondLastLine: true,
             automaticLayout: true,
             minimap: { enabled: true },
           }}
