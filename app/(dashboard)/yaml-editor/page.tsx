@@ -199,7 +199,7 @@ export default function YamlEditorPage() {
   }, [isFullScreen])
 
   return (
-    <div className={`flex flex-col ${isFullScreen ? "fixed inset-0 z-50 bg-background" : "min-h-screen"}`}>
+    <div className={`flex flex-col ${isFullScreen ? "fixed inset-0 z-50 bg-background" : "h-screen"}`}>
       {/* Header */}
       <div className={`flex items-center justify-between p-4 ${isFullScreen ? "border-b" : ""}`}>
         {!isFullScreen && (
@@ -243,9 +243,10 @@ export default function YamlEditorPage() {
       </div>
 
       {/* Editor */}
-      <div className="flex-1 min-h-[calc(100vh-8rem)]">
+      <div className="flex-1" style={{ height: "calc(100vh - 12rem)" }}>
         <Editor
           height="100%"
+          width="100%"
           defaultLanguage="yaml"
           value={yaml}
           onChange={(value) => setYaml(value || "")}
@@ -254,6 +255,7 @@ export default function YamlEditorPage() {
             readOnly: false,
             scrollBeyondLastLine: false,
             automaticLayout: true,
+            minimap: { enabled: true },
           }}
         />
       </div>
