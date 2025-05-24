@@ -18,6 +18,7 @@ import ReactFlow, {
   Panel,
   useReactFlow,
   ReactFlowProvider,
+  ConnectionLineType,
 } from "reactflow"
 import "reactflow/dist/style.css"
 import { Button } from "@/components/ui/button"
@@ -403,6 +404,22 @@ function WorkflowCanvasContent() {
             fitView
             snapToGrid
             snapGrid={[15, 15]}
+            connectionLineType={ConnectionLineType.Step}
+            connectionLineStyle={{
+              strokeWidth: 2,
+              stroke: "#3b82f6",
+            }}
+            defaultEdgeOptions={{
+              type: "step",
+              style: {
+                strokeWidth: 2,
+                stroke: "#3b82f6",
+              },
+              markerEnd: {
+                type: "arrowclosed",
+                color: "#3b82f6",
+              },
+            }}
           >
             <Background />
             <Controls />
