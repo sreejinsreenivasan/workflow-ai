@@ -23,16 +23,20 @@ import ReactFlow, {
 import "reactflow/dist/style.css"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Save, Download, ZoomIn, Undo, Redo, MoreHorizontal } from "lucide-react"
+import { ArrowLeft, Save, Download, ZoomIn, Undo, Redo, MoreHorizontal, Eye, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { NodePalette } from "@/components/node-palette"
-import { NodeConfigPanel } from "@/components/node-config-panel"
+import { NodeDetailsPanel } from "@/components/node-details-panel"
 import { CanvasContextMenu } from "@/components/canvas-context-menu"
 import { CollaborationIndicator } from "@/components/collaboration-indicator"
+import { YamlPreview } from "@/components/yaml-preview"
+import { ConditionalEdgeDialog } from "@/components/conditional-edge-dialog"
 import { StartNode } from "@/components/flow-nodes/start-node"
 import { FunctionNode } from "@/components/flow-nodes/function-node"
 import { ConditionNode } from "@/components/flow-nodes/condition-node"
 import { EndNode } from "@/components/flow-nodes/end-node"
+import { stringify, parse } from "yaml"
+import { transformWorkflowToBackendPayload } from "@/lib/workflow-transformer"
 
 // Define custom node types
 const nodeTypes: NodeTypes = {
@@ -40,6 +44,15 @@ const nodeTypes: NodeTypes = {
   function: FunctionNode,
   condition: ConditionNode,
   end: EndNode,
+  http_call: FunctionNode,
+  ai_copilot: FunctionNode,
+  form: FunctionNode,
+  timer: FunctionNode,
+  email: FunctionNode,
+  webhook: FunctionNode,
+  database: FunctionNode,
+  file_upload: FunctionNode,
+  custom_subgraph: FunctionNode,
 }
 
 // Initial nodes and edges
@@ -48,39 +61,37 @@ const initialNodes: Node[] = [
     id: "1",
     type: "start",
     position: { x: 250, y: 50 },
-    data: { label: "Start" },
+    data: { label: "Start Onboarding" },
   },
   {
     id: "2",
     type: "function",
     position: { x: 250, y: 150 },
-    data: { label: "Process Data", parameters: { input: "data", transformation: "normalize" } },
+    data: {
+      label: "Collect Customer Data",
+      parameters: { form: "customer_info", required: ["name", "email", "phone"] },
+    },
   },
   {
     id: "3",
     type: "condition",
     position: { x: 250, y: 250 },
-    data: { label: "Validate Data", condition: "data.valid === true" },
-  },
-  {
-    id: "4",
-    type: "function",
-    position: { x: 100, y: 350 },
-    data: { label: "Error Path", parameters: { action: "retry" } },
-  },
-  {
-    id: "5",
-    type: "end",
-    position: { x: 400, y: 350 },
-    data: { label: "Complete" },
+    data: { label: "Validate Basic Info", condition: "data.email && data.name && data.phone" },
   },
 ]
 
 const initialEdges: Edge[] = [
   { id: "e1-2", source: "1", target: "2", animated: true },
-  { id: "e2-3", source: "2", target: "3", animated: true },
-  { id: "e3-4", source: "3", target: "4", animated: true, label: "False" },
-  { id: "e3-5", source: "3", target: "5", animated: true, label: "True" },
+  {
+    id: "e2-3",
+    source: "2",
+    target: "3",
+    animated: true,
+    data: { edgeType: "on_success" },
+    style: { stroke: "#22c55e", strokeWidth: 2 },
+    label: "on success",
+    labelStyle: { fill: "#22c55e", fontWeight: 600 },
+  },
 ]
 
 function WorkflowCanvasContent() {
@@ -91,39 +102,296 @@ function WorkflowCanvasContent() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
+  const [pendingConnection, setPendingConnection] = useState<{
+    source: string
+    target: string
+    sourceNode: Node | null
+    targetNode: Node | null
+  } | null>(null)
+  const [showEdgeDialog, setShowEdgeDialog] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; visible: boolean }>({
     x: 0,
     y: 0,
     visible: false,
   })
   const [isPaletteOpen, setIsPaletteOpen] = useState(true)
-  const [isConfigOpen, setIsConfigOpen] = useState(false)
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [showYamlPreview, setShowYamlPreview] = useState(false)
   const [undoStack, setUndoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
   const [redoStack, setRedoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
-
+  const [isSubmitting, setIsSubmitting] = useState(false) // New state for submission loading
   const { project, fitView, getNodes, getEdges } = useReactFlow()
 
   // Get workflow ID from query params
   const workflowId = searchParams.get("id")
 
-  // Handle node selection
-  const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    setSelectedNode(node)
-    setIsConfigOpen(true)
-  }, [])
+  // Get edge style based on type
+  const getEdgeStyle = (edgeType: string) => {
+    switch (edgeType) {
+      case "on_success":
+        return {
+          stroke: "#22c55e",
+          strokeWidth: 2,
+          label: "on success",
+          labelStyle: { fill: "#22c55e", fontWeight: 600 },
+        }
+      case "on_failure":
+        return {
+          stroke: "#ef4444",
+          strokeWidth: 2,
+          label: "on failure",
+          labelStyle: { fill: "#ef4444", fontWeight: 600 },
+        }
+      case "on_true":
+        return {
+          stroke: "#22c55e",
+          strokeWidth: 2,
+          label: "true",
+          labelStyle: { fill: "#22c55e", fontWeight: 600 },
+        }
+      case "on_false":
+        return {
+          stroke: "#ef4444",
+          strokeWidth: 2,
+          label: "false",
+          labelStyle: { fill: "#ef4444", fontWeight: 600 },
+        }
+      default:
+        return {
+          stroke: "#000000",
+          strokeWidth: 2,
+        }
+    }
+  }
 
-  // Handle edge connection
+  // Convert canvas data to YAML workflow format
+  const convertToYamlWorkflow = useCallback(() => {
+    const currentNodes = getNodes()
+    const currentEdges = getEdges()
+
+    // Create a map of node connections with edge types
+    const nodeConnections = new Map<
+      string,
+      {
+        next?: string
+        onSuccess?: string
+        onFailure?: string
+        onTrue?: string
+        onFalse?: string
+      }
+    >()
+
+    currentEdges.forEach((edge) => {
+      const sourceId = edge.source
+      const targetId = edge.target
+      const edgeType = edge.data?.edgeType || "default"
+
+      const existingConnections = nodeConnections.get(sourceId) || {}
+
+      switch (edgeType) {
+        case "on_success":
+          existingConnections.onSuccess = targetId
+          break
+        case "on_failure":
+          existingConnections.onFailure = targetId
+          break
+        case "on_true":
+          existingConnections.onTrue = targetId
+          break
+        case "on_false":
+          existingConnections.onFalse = targetId
+          break
+        default:
+          existingConnections.next = targetId
+          break
+      }
+
+      nodeConnections.set(sourceId, existingConnections)
+    })
+
+    // Convert nodes to workflow steps
+    const steps = currentNodes.map((node) => {
+      const connections = nodeConnections.get(node.id) || {}
+      const baseStep = {
+        id: node.id,
+        name: node.data.label || `Step ${node.id}`,
+        type: node.type,
+      }
+
+      // Add type-specific properties
+      switch (node.type) {
+        case "start":
+          return {
+            ...baseStep,
+            next: connections.next || null,
+          }
+
+        case "function":
+        case "http_call":
+        case "ai_copilot":
+        case "form":
+        case "timer":
+        case "email":
+        case "webhook":
+        case "database":
+        case "file_upload":
+        case "custom_subgraph":
+          return {
+            ...baseStep,
+            ...(node.data.parameters && { parameters: node.data.parameters }),
+            ...(node.data.description && { description: node.data.description }),
+            ...(connections.next && { next: connections.next }),
+            ...(connections.onSuccess && { onSuccess: connections.onSuccess }),
+            ...(connections.onFailure && { onFailure: connections.onFailure }),
+          }
+
+        case "condition":
+          return {
+            ...baseStep,
+            condition: node.data.condition || "true",
+            ...(connections.onTrue && { onTrue: connections.onTrue }),
+            ...(connections.onFalse && { onFalse: connections.onFalse }),
+          }
+
+        case "end":
+          return {
+            ...baseStep,
+            next: null,
+          }
+
+        default:
+          return {
+            ...baseStep,
+            next: connections.next || null,
+          }
+      }
+    })
+
+    // Create the complete workflow object
+    const workflow = {
+      name: "Canvas Workflow", // Default name, could be made configurable
+      description: "Workflow created using the visual canvas editor", // Default description
+      version: "1.0",
+      triggers: [
+        {
+          type: "webhook",
+          config: {
+            url: "/api/triggers/canvas-workflow",
+          },
+        },
+      ],
+      steps: steps,
+    }
+
+    return stringify(workflow, { indent: 2 })
+  }, [getNodes, getEdges])
+
+  // Handle YAML preview
+  const handleYamlPreview = () => {
+    setShowYamlPreview(true)
+  }
+
+  // Handle node selection - now shows details panel instead of config
+  const onNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      setSelectedNode(node)
+      setIsDetailsOpen(true)
+
+      // Add visual feedback by highlighting the selected node
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          selected: n.id === node.id,
+          style: {
+            ...n.style,
+            ...(n.id === node.id && {
+              boxShadow: "0 0 0 2px #3b82f6",
+              zIndex: 1000,
+            }),
+          },
+        })),
+      )
+    },
+    [setNodes],
+  )
+
+  // Add a handler to clear selection when clicking on canvas background
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null)
+    setIsDetailsOpen(false)
+
+    // Clear visual selection
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        selected: false,
+        style: {
+          ...n.style,
+          boxShadow: undefined,
+          zIndex: undefined,
+        },
+      })),
+    )
+  }, [setNodes])
+
+  // Handle edge connection - now shows dialog for edge type selection
   const onConnect = useCallback(
     (params: Connection) => {
+      const sourceNode = getNodes().find((n) => n.id === params.source)
+      const targetNode = getNodes().find((n) => n.id === params.target)
+
+      // Store the pending connection
+      setPendingConnection({
+        source: params.source!,
+        target: params.target!,
+        sourceNode: sourceNode || null,
+        targetNode: targetNode || null,
+      })
+
+      // Show edge configuration dialog
+      setShowEdgeDialog(true)
+    },
+    [getNodes],
+  )
+
+  // Handle edge type confirmation
+  const handleEdgeConfirm = useCallback(
+    (edgeType: string) => {
+      if (!pendingConnection) return
+
       // Save current state to undo stack
       setUndoStack((stack) => [...stack, { nodes: getNodes(), edges: getEdges() }])
       setRedoStack([])
 
-      // Create a unique edge ID
-      const id = `e${params.source}-${params.target}`
-      setEdges((eds) => addEdge({ ...params, id, animated: true }, eds))
+      const edgeStyle = getEdgeStyle(edgeType)
+      const id = `e${pendingConnection.source}-${pendingConnection.target}-${edgeType}`
+
+      const newEdge: Edge = {
+        id,
+        source: pendingConnection.source,
+        target: pendingConnection.target,
+        animated: true,
+        data: { edgeType },
+        style: { stroke: edgeStyle.stroke, strokeWidth: edgeStyle.strokeWidth },
+        ...(edgeStyle.label && {
+          label: edgeStyle.label,
+          labelStyle: edgeStyle.labelStyle,
+        }),
+        markerEnd: {
+          type: "arrowclosed",
+          color: edgeStyle.stroke,
+        },
+      }
+
+      setEdges((eds) => addEdge(newEdge, eds))
+      setPendingConnection(null)
+
+      toast({
+        title: "Connection created",
+        description: `Added ${edgeStyle.label || "default"} connection between nodes.`,
+      })
     },
-    [getNodes, getEdges, setEdges, setUndoStack, setRedoStack],
+    [pendingConnection, getNodes, getEdges, setEdges, setUndoStack, setRedoStack, toast],
   )
 
   // Handle node update
@@ -145,6 +413,34 @@ function WorkflowCanvasContent() {
       )
     },
     [setNodes],
+  )
+
+  // Handle adding node from palette
+  const handleAddNode = useCallback(
+    (nodeType: string, nodeLabel: string, config: any, position: { x: number; y: number }) => {
+      // Save current state to undo stack
+      setUndoStack((stack) => [...stack, { nodes: getNodes(), edges: getEdges() }])
+      setRedoStack([])
+
+      // Create a new node with configuration
+      const newNode: Node = {
+        id: `node-${Date.now()}`,
+        type: nodeType,
+        position,
+        data: {
+          label: config.label || nodeLabel,
+          ...config,
+        },
+      }
+
+      setNodes((nds) => nds.concat(newNode))
+
+      toast({
+        title: "Node added",
+        description: `${nodeLabel} has been added to the workflow.`,
+      })
+    },
+    [getNodes, getEdges, setNodes, setUndoStack, setRedoStack, toast],
   )
 
   // Handle node drag
@@ -177,30 +473,47 @@ function WorkflowCanvasContent() {
   }, [])
 
   // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Undo: Ctrl+Z
-      if (event.ctrlKey && event.key === "z") {
-        handleUndo()
-      }
-      // Redo: Ctrl+Y or Ctrl+Shift+Z
-      if ((event.ctrlKey && event.key === "y") || (event.ctrlKey && event.shiftKey && event.key === "z")) {
-        handleRedo()
-      }
-      // Delete: Delete key
-      if (event.key === "Delete" && selectedNode) {
-        handleDeleteNode(selectedNode.id)
-      }
+  const handleKeyDown = (event: KeyboardEvent) => {
+    // Undo: Ctrl+Z
+    if (event.ctrlKey && event.key === "z") {
+      handleUndo()
     }
+    // Redo: Ctrl+Y or Ctrl+Shift+Z
+    if ((event.ctrlKey && event.key === "y") || (event.ctrlKey && event.shiftKey && event.key === "z")) {
+      handleRedo()
+    }
+    // Delete: Delete key
+    if (event.key === "Delete" && selectedNode) {
+      handleDeleteNode(selectedNode.id)
+    }
+  }
 
+  useEffect(() => {
     window.addEventListener("keydown", handleKeyDown)
     return () => {
       window.removeEventListener("keydown", handleKeyDown)
     }
   }, [selectedNode])
 
+  // -- SUPPRESS BROWSER RESIZE-OBSERVER NOISE -----------------------------
+  useEffect(() => {
+    // Ignore “ResizeObserver loop …” errors that React Flow occasionally emits.
+    // They do NOT affect runtime behaviour but spam the console.
+    const suppressROError = (e: ErrorEvent) => {
+      if (
+        e.message === "ResizeObserver loop completed with undelivered notifications." ||
+        e.message === "ResizeObserver loop limit exceeded"
+      ) {
+        e.stopImmediatePropagation()
+      }
+    }
+
+    window.addEventListener("error", suppressROError)
+    return () => window.removeEventListener("error", suppressROError)
+  }, [])
+
   // Handle undo
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (undoStack.length === 0) return
 
     // Save current state to redo stack
@@ -213,10 +526,10 @@ function WorkflowCanvasContent() {
     // Apply the state
     setNodes(lastState.nodes)
     setEdges(lastState.edges)
-  }
+  }, [undoStack, getNodes, getEdges, setNodes, setEdges])
 
   // Handle redo
-  const handleRedo = () => {
+  const handleRedo = useCallback(() => {
     if (redoStack.length === 0) return
 
     // Save current state to undo stack
@@ -229,27 +542,30 @@ function WorkflowCanvasContent() {
     // Apply the state
     setNodes(lastState.nodes)
     setEdges(lastState.edges)
-  }
+  }, [redoStack, getNodes, getEdges, setNodes, setEdges])
 
   // Handle node deletion
-  const handleDeleteNode = (nodeId: string) => {
-    // Save current state to undo stack
-    setUndoStack((stack) => [...stack, { nodes: getNodes(), edges: getEdges() }])
-    setRedoStack([])
+  const handleDeleteNode = useCallback(
+    (nodeId: string) => {
+      // Save current state to undo stack
+      setUndoStack((stack) => [...stack, { nodes: getNodes(), edges: getEdges() }])
+      setRedoStack([])
 
-    // Remove the node
-    setNodes((nds) => nds.filter((node) => node.id !== nodeId))
-    // Remove connected edges
-    setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId))
+      // Remove the node
+      setNodes((nds) => nds.filter((node) => node.id !== nodeId))
+      // Remove connected edges
+      setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId))
 
-    // Close config panel if the selected node is deleted
-    if (selectedNode?.id === nodeId) {
-      setSelectedNode(null)
-      setIsConfigOpen(false)
-    }
-  }
+      // Close details panel if the selected node is deleted
+      if (selectedNode?.id === nodeId) {
+        setSelectedNode(null)
+        setIsDetailsOpen(false)
+      }
+    },
+    [getNodes, getEdges, setNodes, setEdges, selectedNode, setUndoStack, setRedoStack],
+  )
 
-  // Handle node addition from palette
+  // Handle node addition from drag and drop
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = "move"
@@ -346,6 +662,72 @@ function WorkflowCanvasContent() {
     }, 100)
   }
 
+  // Handle Save & Submit Workflow
+  const handleSubmitWorkflow = async () => {
+    setIsSubmitting(true)
+    try {
+      const yamlWorkflow = convertToYamlWorkflow()
+      const parsedWorkflow = parse(yamlWorkflow) // Parse YAML string to JS object
+
+      // Extract name and description from the parsed workflow
+      const workflowName = parsedWorkflow.name || "Untitled Workflow"
+      const workflowDescription = parsedWorkflow.description || "Workflow created from canvas."
+
+      const workflowPayload = transformWorkflowToBackendPayload({
+        name: workflowName,
+        description: workflowDescription,
+        steps: parsedWorkflow.steps,
+      })
+
+      const response = await fetch("https://dev-workflow.pixl.ai/api/workflows/definitions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(workflowPayload),
+      })
+
+      if (!response) throw new Error("Network error: could not reach the workflow API.")
+
+      if (!response.ok) {
+        const errorData = await response.json()
+
+        // FastAPI validation errors come back as an array in `detail`.
+        let readableMessage = "Failed to create workflow."
+        if (Array.isArray(errorData?.detail)) {
+          readableMessage = errorData.detail
+            .map(
+              (d: any) =>
+                // `loc` is usually an array like ["body", "steps", 0, "action_type"]
+                `${Array.isArray(d.loc) ? d.loc.join(".") : d.loc}: ${d.msg}`,
+            )
+            .join("\n")
+        } else if (typeof errorData?.detail === "string") {
+          readableMessage = errorData.detail
+        } else {
+          // Fallback – stringify the entire payload for debugging
+          readableMessage = JSON.stringify(errorData, null, 2)
+        }
+
+        throw new Error(readableMessage)
+      }
+
+      const result = await response.json()
+      toast({
+        title: "Workflow Submitted!",
+        description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
+      })
+      router.push(`/workflow/${result.id}`) // Redirect to the new workflow's page
+    } catch (error: any) {
+      toast({
+        title: "Error submitting workflow",
+        description: error?.message ?? "An unexpected error occurred.",
+        variant: "destructive",
+      })
+      console.error("Error submitting workflow:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -371,13 +753,26 @@ function WorkflowCanvasContent() {
             <Redo className="h-4 w-4" />
             <span className="sr-only">Redo</span>
           </Button>
+          <Button variant="outline" size="sm" onClick={handleYamlPreview}>
+            <Eye className="mr-2 h-4 w-4" />
+            Preview YAML
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4" />
             <span className="sr-only">Export</span>
           </Button>
-          <Button size="sm" onClick={handleSave}>
-            <Save className="mr-2 h-4 w-4" />
-            Save
+          <Button size="sm" onClick={handleSubmitWorkflow} disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                Save & Submit
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -385,7 +780,11 @@ function WorkflowCanvasContent() {
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Node palette */}
-        <NodePalette isOpen={isPaletteOpen} onToggle={() => setIsPaletteOpen(!isPaletteOpen)} />
+        <NodePalette
+          isOpen={isPaletteOpen}
+          onToggle={() => setIsPaletteOpen(!isPaletteOpen)}
+          onAddNode={handleAddNode}
+        />
 
         {/* Canvas */}
         <div className="flex-1 h-full" ref={reactFlowWrapper}>
@@ -396,6 +795,7 @@ function WorkflowCanvasContent() {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
             onNodeDragStop={onNodeDragStop}
             onContextMenu={onContextMenu}
             onDragOver={onDragOver}
@@ -407,19 +807,22 @@ function WorkflowCanvasContent() {
             connectionLineType={ConnectionLineType.Step}
             connectionLineStyle={{
               strokeWidth: 2,
-              stroke: "#3b82f6",
+              stroke: "#6b7280",
             }}
             defaultEdgeOptions={{
               type: "step",
               style: {
                 strokeWidth: 2,
-                stroke: "#3b82f6",
+                stroke: "#6b7280",
               },
               markerEnd: {
                 type: "arrowclosed",
-                color: "#3b82f6",
+                color: "#6b7280",
               },
             }}
+            nodesDraggable={true}
+            nodesConnectable={true}
+            elementsSelectable={true}
           >
             <Background />
             <Controls />
@@ -439,12 +842,12 @@ function WorkflowCanvasContent() {
           </ReactFlow>
         </div>
 
-        {/* Node configuration panel */}
+        {/* Node details panel */}
         {selectedNode && (
-          <NodeConfigPanel
+          <NodeDetailsPanel
             node={selectedNode}
-            isOpen={isConfigOpen}
-            onClose={() => setIsConfigOpen(false)}
+            isOpen={isDetailsOpen}
+            onClose={() => setIsDetailsOpen(false)}
             onUpdate={(data) => onNodeUpdate(selectedNode.id, data)}
             onDelete={() => handleDeleteNode(selectedNode.id)}
           />
@@ -466,6 +869,21 @@ function WorkflowCanvasContent() {
           />
         )}
       </div>
+
+      {/* Edge Configuration Dialog */}
+      <ConditionalEdgeDialog
+        isOpen={showEdgeDialog}
+        onClose={() => {
+          setShowEdgeDialog(false)
+          setPendingConnection(null)
+        }}
+        sourceNode={pendingConnection?.sourceNode || null}
+        targetNode={pendingConnection?.targetNode || null}
+        onConfirm={handleEdgeConfirm}
+      />
+
+      {/* YAML Preview Modal */}
+      <YamlPreview yaml={convertToYamlWorkflow()} isOpen={showYamlPreview} onClose={() => setShowYamlPreview(false)} />
     </div>
   )
 }

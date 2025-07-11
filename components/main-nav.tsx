@@ -32,6 +32,12 @@ export function MainNav({ className, ...props }: React.HTMLAttributes<HTMLElemen
       <Link href="/library" className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary">
         Library
       </Link>
+      <Link
+        href="/workflow-creator"
+        className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+      >
+        Creator
+      </Link>
       <Link href="/settings" className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary">
         Settings
       </Link>
