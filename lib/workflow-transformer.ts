@@ -94,7 +94,7 @@ export function transformWorkflowToBackendPayload(workflow: any): CreateWorkflow
               backendStep.input_fields = [{ name: "parameters", value: step.parameters }]
             }
             break
-          case "http_call":
+          case "http_request": // New case for HTTP_REQUEST
             backendStep.action_type = "HTTP_REQUEST"
             backendStep.api_config = {
               url: step.url,
@@ -121,7 +121,7 @@ export function transformWorkflowToBackendPayload(workflow: any): CreateWorkflow
               { name: "maxTokens", value: step.maxTokens },
             ]
             break
-          case "form":
+          case "form": // This maps to the backend's generic "TASK" with "USER_FORM_INPUT" action_type
             backendStep.action_type = "USER_FORM_INPUT"
             backendStep.form = {
               title: step.formTitle,

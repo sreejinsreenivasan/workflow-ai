@@ -24,7 +24,12 @@ const nodeCategories = [
   {
     name: "Advanced",
     nodes: [
-      { type: "http_call", label: "HTTP Call", icon: "🌐", description: "Make an HTTP request" },
+      {
+        type: "http_request",
+        label: "HTTP Request",
+        icon: "🌐",
+        description: "Make an HTTP request to an external API",
+      },
       { type: "ai_copilot", label: "AI Copilot", icon: "🤖", description: "Use AI to process data" },
       { type: "form", label: "Form", icon: "📝", description: "Display a form to collect user input" },
       { type: "timer", label: "Timer", icon: "⏱️", description: "Wait for a specified duration" },

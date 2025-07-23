@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Plus, Trash2 } from "lucide-react"
 
 interface NodeConfigurationDialogProps {
@@ -30,12 +29,18 @@ export function NodeConfigurationDialog({
   initialConfig = {},
   onConfirm,
 }: NodeConfigurationDialogProps) {
-  const [config, setConfig] = useState<any>({})
+  const [config, setConfig] = useState<any>({ label: nodeLabel, ...initialConfig })
+  const [formData, setFormData] = useState<any>({ label: nodeLabel, ...initialConfig })
+  const node = { type: nodeType }
 
   // Initialize config when dialog opens or initialConfig changes
   useEffect(() => {
     if (isOpen) {
       setConfig({
+        label: nodeLabel,
+        ...initialConfig,
+      })
+      setFormData({
         label: nodeLabel,
         ...initialConfig,
       })
@@ -50,19 +55,25 @@ export function NodeConfigurationDialog({
 
   const handleCancel = () => {
     setConfig({})
+    setFormData({})
     onClose()
   }
 
   const updateConfig = (key: string, value: any) => {
     setConfig((prev: any) => ({ ...prev, [key]: value }))
+    setFormData((prev: any) => ({ ...prev, [key]: value }))
   }
 
-  const renderHttpCallConfig = () => (
+  const handleChange = (key: string, value: any) => {
+    setFormData((prev: any) => ({ ...prev, [key]: value }))
+  }
+
+  const renderHttpConfig = (currentConfig: any, updateFn: (key: string, value: any) => void) => (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="method">HTTP Method</Label>
-          <Select value={config.method || "GET"} onValueChange={(value) => updateConfig("method", value)}>
+          <Select value={currentConfig.method || "GET"} onValueChange={(value) => updateFn("method", value)}>
             <SelectTrigger>
               <SelectValue placeholder="Select method" />
             </SelectTrigger>
@@ -80,8 +91,8 @@ export function NodeConfigurationDialog({
           <Input
             id="timeout"
             type="number"
-            value={config.timeout || 30}
-            onChange={(e) => updateConfig("timeout", Number.parseInt(e.target.value))}
+            value={currentConfig.timeout || 30}
+            onChange={(e) => updateFn("timeout", Number.parseInt(e.target.value))}
           />
         </div>
       </div>
@@ -91,8 +102,8 @@ export function NodeConfigurationDialog({
         <Input
           id="url"
           placeholder="https://api.example.com/endpoint"
-          value={config.url || ""}
-          onChange={(e) => updateConfig("url", e.target.value)}
+          value={currentConfig.url || ""}
+          onChange={(e) => updateFn("url", e.target.value)}
         />
       </div>
 
@@ -106,32 +117,32 @@ export function NodeConfigurationDialog({
         <TabsContent value="headers" className="space-y-4">
           <div className="space-y-2">
             <Label>Headers</Label>
-            {(config.headers || []).map((header: any, index: number) => (
+            {(currentConfig.headers || []).map((header: any, index: number) => (
               <div key={index} className="flex gap-2">
                 <Input
                   placeholder="Header name"
                   value={header.key || ""}
                   onChange={(e) => {
-                    const newHeaders = [...(config.headers || [])]
+                    const newHeaders = [...(currentConfig.headers || [])]
                     newHeaders[index] = { ...header, key: e.target.value }
-                    updateConfig("headers", newHeaders)
+                    updateFn("headers", newHeaders)
                   }}
                 />
                 <Input
                   placeholder="Header value"
                   value={header.value || ""}
                   onChange={(e) => {
-                    const newHeaders = [...(config.headers || [])]
+                    const newHeaders = [...(currentConfig.headers || [])]
                     newHeaders[index] = { ...header, value: e.target.value }
-                    updateConfig("headers", newHeaders)
+                    updateFn("headers", newHeaders)
                   }}
                 />
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={() => {
-                    const newHeaders = (config.headers || []).filter((_: any, i: number) => i !== index)
-                    updateConfig("headers", newHeaders)
+                    const newHeaders = (currentConfig.headers || []).filter((_: any, i: number) => i !== index)
+                    updateFn("headers", newHeaders)
                   }}
                 >
                   <Trash2 className="h-4 w-4" />
@@ -141,8 +152,8 @@ export function NodeConfigurationDialog({
             <Button
               variant="outline"
               onClick={() => {
-                const newHeaders = [...(config.headers || []), { key: "", value: "" }]
-                updateConfig("headers", newHeaders)
+                const newHeaders = [...(currentConfig.headers || []), { key: "", value: "" }]
+                updateFn("headers", newHeaders)
               }}
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -155,8 +166,8 @@ export function NodeConfigurationDialog({
           <div className="space-y-2">
             <Label htmlFor="contentType">Content Type</Label>
             <Select
-              value={config.contentType || "application/json"}
-              onValueChange={(value) => updateConfig("contentType", value)}
+              value={currentConfig.contentType || "application/json"}
+              onValueChange={(value) => updateFn("contentType", value)}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -175,8 +186,8 @@ export function NodeConfigurationDialog({
               id="body"
               rows={6}
               placeholder='{"key": "value"}'
-              value={config.body || ""}
-              onChange={(e) => updateConfig("body", e.target.value)}
+              value={currentConfig.body || ""}
+              onChange={(e) => updateFn("body", e.target.value)}
             />
           </div>
         </TabsContent>
@@ -184,7 +195,7 @@ export function NodeConfigurationDialog({
         <TabsContent value="auth" className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="authType">Authentication Type</Label>
-            <Select value={config.authType || "none"} onValueChange={(value) => updateConfig("authType", value)}>
+            <Select value={currentConfig.authType || "none"} onValueChange={(value) => updateFn("authType", value)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -197,27 +208,27 @@ export function NodeConfigurationDialog({
             </Select>
           </div>
 
-          {config.authType === "bearer" && (
+          {currentConfig.authType === "bearer" && (
             <div className="space-y-2">
               <Label htmlFor="token">Bearer Token</Label>
               <Input
                 id="token"
                 type="password"
                 placeholder="Enter bearer token"
-                value={config.token || ""}
-                onChange={(e) => updateConfig("token", e.target.value)}
+                value={currentConfig.token || ""}
+                onChange={(e) => updateFn("token", e.target.value)}
               />
             </div>
           )}
 
-          {config.authType === "basic" && (
+          {currentConfig.authType === "basic" && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <Input
                   id="username"
-                  value={config.username || ""}
-                  onChange={(e) => updateConfig("username", e.target.value)}
+                  value={currentConfig.username || ""}
+                  onChange={(e) => updateFn("username", e.target.value)}
                 />
               </div>
               <div className="space-y-2">
@@ -225,22 +236,22 @@ export function NodeConfigurationDialog({
                 <Input
                   id="password"
                   type="password"
-                  value={config.password || ""}
-                  onChange={(e) => updateConfig("password", e.target.value)}
+                  value={currentConfig.password || ""}
+                  onChange={(e) => updateFn("password", e.target.value)}
                 />
               </div>
             </div>
           )}
 
-          {config.authType === "apikey" && (
+          {currentConfig.authType === "apikey" && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="apiKeyName">API Key Name</Label>
                 <Input
                   id="apiKeyName"
                   placeholder="X-API-Key"
-                  value={config.apiKeyName || ""}
-                  onChange={(e) => updateConfig("apiKeyName", e.target.value)}
+                  value={currentConfig.apiKeyName || ""}
+                  onChange={(e) => updateFn("apiKeyName", e.target.value)}
                 />
               </div>
               <div className="space-y-2">
@@ -248,8 +259,8 @@ export function NodeConfigurationDialog({
                 <Input
                   id="apiKeyValue"
                   type="password"
-                  value={config.apiKeyValue || ""}
-                  onChange={(e) => updateConfig("apiKeyValue", e.target.value)}
+                  value={currentConfig.apiKeyValue || ""}
+                  onChange={(e) => updateFn("apiKeyValue", e.target.value)}
                 />
               </div>
             </div>
@@ -561,16 +572,226 @@ export function NodeConfigurationDialog({
     </div>
   )
 
+  const renderConditionConfig = () => (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="label">Node Label</Label>
+        <Input
+          id="label"
+          placeholder={nodeLabel}
+          value={config.label || nodeLabel}
+          onChange={(e) => updateConfig("label", e.target.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="condition">Condition</Label>
+        <Textarea
+          id="condition"
+          rows={3}
+          placeholder="data.status === 'approved'"
+          value={config.condition || ""}
+          onChange={(e) => updateConfig("condition", e.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">Enter a JavaScript expression that evaluates to true or false.</p>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="description">Description</Label>
+        <Textarea
+          id="description"
+          rows={2}
+          placeholder="Describe the condition..."
+          value={config.description || ""}
+          onChange={(e) => updateConfig("description", e.target.value)}
+        />
+      </div>
+    </div>
+  )
+
+  const renderInteractiveFormHttpConfig = () => (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Label htmlFor="label">Node Label</Label>
+        <Input
+          id="label"
+          placeholder="Enter node label"
+          value={config.label || ""}
+          onChange={(e) => updateConfig("label", e.target.value)}
+        />
+      </div>
+
+      {/* Form Fields Configuration */}
+      <div className="space-y-2">
+        <Label>Form Fields</Label>
+        {(config.formFields || []).map((field: any, index: number) => (
+          <Card key={index} className="p-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Name</Label>
+                <Input
+                  placeholder="e.g., email"
+                  value={field.name || ""}
+                  onChange={(e) => {
+                    const newFields = [...(config.formFields || [])]
+                    newFields[index] = { ...field, name: e.target.value }
+                    updateConfig("formFields", newFields)
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Label</Label>
+                <Input
+                  placeholder="e.g., Email Address"
+                  value={field.label || ""}
+                  onChange={(e) => {
+                    const newFields = [...(config.formFields || [])]
+                    newFields[index] = { ...field, label: e.target.value }
+                    updateConfig("formFields", newFields)
+                  }}
+                />
+              </div>
+              <div className="space-y-1 col-span-2">
+                <Label>Type</Label>
+                <Select
+                  value={field.type || "text"}
+                  onValueChange={(value) => {
+                    const newFields = [...(config.formFields || [])]
+                    newFields[index] = { ...field, type: value }
+                    updateConfig("formFields", newFields)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="text">Text</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="number">Number</SelectItem>
+                    <SelectItem value="password">Password</SelectItem>
+                    <SelectItem value="textarea">Textarea</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1 col-span-2">
+                <Label>Placeholder</Label>
+                <Input
+                  placeholder="e.g., enter your email"
+                  value={field.placeholder || ""}
+                  onChange={(e) => {
+                    const newFields = [...(config.formFields || [])]
+                    newFields[index] = { ...field, placeholder: e.target.value }
+                    updateConfig("formFields", newFields)
+                  }}
+                />
+              </div>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="mt-3 w-full"
+              onClick={() => {
+                const newFields = (config.formFields || []).filter((_: any, i: number) => i !== index)
+                updateConfig("formFields", newFields)
+              }}
+            >
+              <Trash2 className="h-4 w-4 mr-2" /> Remove Field
+            </Button>
+          </Card>
+        ))}
+        <Button
+          variant="outline"
+          className="w-full bg-transparent"
+          onClick={() => {
+            const newFields = [...(config.formFields || []), { name: "", label: "", type: "text", placeholder: "" }]
+            updateConfig("formFields", newFields)
+          }}
+        >
+          <Plus className="h-4 w-4 mr-2" /> Add Form Field
+        </Button>
+      </div>
+
+      {/* HTTP Request Configuration */}
+      <div className="space-y-2">
+        <Label>HTTP Request</Label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <Label htmlFor="httpMethod">Method</Label>
+            <Select value={config.httpMethod || "POST"} onValueChange={(value) => updateConfig("httpMethod", value)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="GET">GET</SelectItem>
+                <SelectItem value="POST">POST</SelectItem>
+                <SelectItem value="PUT">PUT</SelectItem>
+                <SelectItem value="DELETE">DELETE</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="httpUrl">URL</Label>
+            <Input
+              id="httpUrl"
+              placeholder="https://api.example.com/submit"
+              value={config.httpUrl || ""}
+              onChange={(e) => updateConfig("httpUrl", e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="httpBodyTemplate">Request Body Template (JSON)</Label>
+          <Textarea
+            id="httpBodyTemplate"
+            rows={5}
+            placeholder='{"email": "{{email}}", "name": "{{name}}"}'
+            value={config.httpBodyTemplate || ""}
+            onChange={(e) => updateConfig("httpBodyTemplate", e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">Use `{"{{fieldName}}"}` to inject form values.</p>
+        </div>
+      </div>
+
+      {/* Error Mapping Configuration */}
+      <div className="space-y-2">
+        <Label htmlFor="errorMapping">Error Mapping (JSON)</Label>
+        <Textarea
+          id="errorMapping"
+          rows={3}
+          placeholder='{"backend_email_error": "email", "backend_name_error": "name"}'
+          value={
+            config.errorMapping
+              ? typeof config.errorMapping === "string"
+                ? config.errorMapping
+                : JSON.stringify(config.errorMapping, null, 2)
+              : ""
+          }
+          onChange={(e) => {
+            try {
+              const parsed = JSON.parse(e.target.value)
+              updateConfig("errorMapping", parsed)
+            } catch {
+              updateConfig("errorMapping", e.target.value)
+            }
+          }}
+        />
+        <p className="text-xs text-muted-foreground">Map backend error keys to your form field names.</p>
+      </div>
+    </div>
+  )
+
   const renderConfiguration = () => {
-    switch (nodeType) {
-      case "http_call":
-        return renderHttpCallConfig()
+    switch (node.type) {
+      case "http_request":
+        return renderHttpConfig(config, updateConfig)
       case "ai_copilot":
         return renderAiCopilotConfig()
       case "form":
         return renderFormConfig()
       case "timer":
         return renderTimerConfig()
+      case "interactive_form_http":
+        return renderInteractiveFormHttpConfig()
+      case "condition": // Added case for condition node
+        return renderConditionConfig()
       default:
         return renderBasicConfig()
     }
@@ -580,23 +801,14 @@ export function NodeConfigurationDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Configure {nodeLabel}</DialogTitle>
+          <DialogTitle>{nodeLabel}</DialogTitle>
         </DialogHeader>
-
-        <div className="space-y-6">
-          <div className="flex items-center space-x-2">
-            <Badge variant="secondary">{nodeType}</Badge>
-            <span className="text-sm text-muted-foreground">Configure the properties for this node</span>
-          </div>
-
-          {renderConfiguration()}
-        </div>
-
+        {renderConfiguration()}
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm}>Save Changes</Button>
+          <Button onClick={handleConfirm}>Confirm</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -35,6 +35,8 @@ import { StartNode } from "@/components/flow-nodes/start-node"
 import { FunctionNode } from "@/components/flow-nodes/function-node"
 import { ConditionNode } from "@/components/flow-nodes/condition-node"
 import { EndNode } from "@/components/flow-nodes/end-node"
+import { InteractiveFormHttpNode } from "@/components/flow-nodes/interactive-form-http-node"
+import { HttpRequestNode } from "@/components/flow-nodes/http-request-node" // New import
 import { stringify, parse } from "yaml"
 import { transformWorkflowToBackendPayload } from "@/lib/workflow-transformer"
 
@@ -44,7 +46,7 @@ const nodeTypes: NodeTypes = {
   function: FunctionNode,
   condition: ConditionNode,
   end: EndNode,
-  http_call: FunctionNode,
+  http_request: HttpRequestNode, // Changed from http_call
   ai_copilot: FunctionNode,
   form: FunctionNode,
   timer: FunctionNode,
@@ -53,6 +55,7 @@ const nodeTypes: NodeTypes = {
   database: FunctionNode,
   file_upload: FunctionNode,
   custom_subgraph: FunctionNode,
+  interactive_form_http: InteractiveFormHttpNode,
 }
 
 // Initial nodes and edges
@@ -65,15 +68,39 @@ const initialNodes: Node[] = [
   },
   {
     id: "2",
-    type: "function",
+    type: "interactive_form_http",
     position: { x: 250, y: 150 },
     data: {
-      label: "Collect Customer Data",
-      parameters: { form: "customer_info", required: ["name", "email", "phone"] },
+      label: "User Registration",
+      formFields: [
+        { name: "name", label: "Full Name", type: "text", placeholder: "John Doe" },
+        { name: "email", label: "Email Address", type: "email", placeholder: "john@example.com" },
+        { name: "password", label: "Password", type: "password" },
+      ],
+      httpMethod: "POST",
+      httpUrl: "https://api.example.com/register",
+      httpBodyTemplate: '{"name": "{{name}}", "email": "{{email}}", "password": "{{password}}"}',
+      errorMapping: {
+        email: "email",
+        name: "name",
+        password: "password",
+      },
     },
   },
   {
     id: "3",
+    type: "http_request", // Example of the new node type
+    position: { x: 500, y: 150 },
+    data: {
+      label: "Fetch User Data",
+      method: "GET",
+      url: "https://api.example.com/users/{{userId}}",
+      timeout: 60,
+      headers: [{ key: "Authorization", value: "Bearer {{token}}" }],
+    },
+  },
+  {
+    id: "4",
     type: "condition",
     position: { x: 250, y: 250 },
     data: { label: "Validate Basic Info", condition: "data.email && data.name && data.phone" },
@@ -83,15 +110,16 @@ const initialNodes: Node[] = [
 const initialEdges: Edge[] = [
   { id: "e1-2", source: "1", target: "2", animated: true },
   {
-    id: "e2-3",
+    id: "e2-4",
     source: "2",
-    target: "3",
+    target: "4",
     animated: true,
     data: { edgeType: "on_success" },
     style: { stroke: "#22c55e", strokeWidth: 2 },
     label: "on success",
     labelStyle: { fill: "#22c55e", fontWeight: 600 },
   },
+  { id: "e3-4", source: "3", target: "4", animated: true }, // Connect new HTTP Request node
 ]
 
 function WorkflowCanvasContent() {
@@ -227,7 +255,6 @@ function WorkflowCanvasContent() {
           }
 
         case "function":
-        case "http_call":
         case "ai_copilot":
         case "form":
         case "timer":
@@ -240,6 +267,37 @@ function WorkflowCanvasContent() {
             ...baseStep,
             ...(node.data.parameters && { parameters: node.data.parameters }),
             ...(node.data.description && { description: node.data.description }),
+            ...(connections.next && { next: connections.next }),
+            ...(connections.onSuccess && { onSuccess: connections.onSuccess }),
+            ...(connections.onFailure && { onFailure: connections.onFailure }),
+          }
+        case "http_request": // Handle the new http_request node type
+          return {
+            ...baseStep,
+            method: node.data.method,
+            url: node.data.url,
+            ...(node.data.timeout && { timeout: node.data.timeout }),
+            ...(node.data.headers && { headers: node.data.headers }),
+            ...(node.data.body && { body: node.data.body }),
+            ...(node.data.contentType && { contentType: node.data.contentType }),
+            ...(node.data.authType && { authType: node.data.authType }),
+            ...(node.data.token && { token: node.data.token }),
+            ...(node.data.username && { username: node.data.username }),
+            ...(node.data.password && { password: node.data.password }),
+            ...(node.data.apiKeyName && { apiKeyName: node.data.apiKeyName }),
+            ...(node.data.apiKeyValue && { apiKeyValue: node.data.apiKeyValue }),
+            ...(connections.next && { next: connections.next }),
+            ...(connections.onSuccess && { onSuccess: connections.onSuccess }),
+            ...(connections.onFailure && { onFailure: connections.onFailure }),
+          }
+        case "interactive_form_http":
+          return {
+            ...baseStep,
+            formFields: node.data.formFields,
+            httpMethod: node.data.httpMethod,
+            httpUrl: node.data.httpUrl,
+            ...(node.data.httpBodyTemplate && { httpBodyTemplate: node.data.httpBodyTemplate }),
+            ...(node.data.errorMapping && { errorMapping: node.data.errorMapping }),
             ...(connections.next && { next: connections.next }),
             ...(connections.onSuccess && { onSuccess: connections.onSuccess }),
             ...(connections.onFailure && { onFailure: connections.onFailure }),
@@ -295,7 +353,8 @@ function WorkflowCanvasContent() {
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       setSelectedNode(node)
-      setIsDetailsOpen(true)
+      // Only open details panel for nodes that are NOT interactive_form_http
+      setIsDetailsOpen(node.type !== "interactive_form_http")
 
       // Add visual feedback by highlighting the selected node
       setNodes((nds) =>
@@ -487,30 +546,6 @@ function WorkflowCanvasContent() {
       handleDeleteNode(selectedNode.id)
     }
   }
-
-  useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown)
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [selectedNode])
-
-  // -- SUPPRESS BROWSER RESIZE-OBSERVER NOISE -----------------------------
-  useEffect(() => {
-    // Ignore “ResizeObserver loop …” errors that React Flow occasionally emits.
-    // They do NOT affect runtime behaviour but spam the console.
-    const suppressROError = (e: ErrorEvent) => {
-      if (
-        e.message === "ResizeObserver loop completed with undelivered notifications." ||
-        e.message === "ResizeObserver loop limit exceeded"
-      ) {
-        e.stopImmediatePropagation()
-      }
-    }
-
-    window.addEventListener("error", suppressROError)
-    return () => window.removeEventListener("error", suppressROError)
-  }, [])
 
   // Handle undo
   const handleUndo = useCallback(() => {
@@ -727,6 +762,13 @@ function WorkflowCanvasContent() {
       setIsSubmitting(false)
     }
   }
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [selectedNode])
 
   return (
     <div className="flex flex-col h-screen">
