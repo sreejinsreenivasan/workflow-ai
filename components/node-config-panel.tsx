@@ -1,16 +1,20 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import type { Node } from "reactflow"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { X, Trash, Plus, Trash2 } from "lucide-react"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { TreePicker } from "@/components/tree-picker"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { X, Trash2, Link, Plus, Minus } from "lucide-react"
+import type { Node } from "reactflow"
+import type { PreviousWorkflowNode, CurrentNodeInputField } from "@/types/workflow"
 
 interface NodeConfigPanelProps {
   node: Node
@@ -21,242 +25,163 @@ interface NodeConfigPanelProps {
 }
 
 export function NodeConfigPanel({ node, isOpen, onClose, onUpdate, onDelete }: NodeConfigPanelProps) {
-  const [formData, setFormData] = useState<any>({})
+  const [localData, setLocalData] = useState(node.data)
+  const [showTreePicker, setShowTreePicker] = useState(false)
+  const [currentMappingField, setCurrentMappingField] = useState<string>("")
 
-  // Initialize form data when node changes
+  // Initialize localData when node changes
   useEffect(() => {
-    setFormData({ ...node.data })
+    setLocalData(node.data)
   }, [node])
 
-  const handleChange = (key: string, value: any) => {
-    setFormData((prev: any) => {
-      const newData = { ...prev, [key]: value }
-      onUpdate(newData)
-      return newData
-    })
+  // Mock data for TreePicker - in a real app, this would come from the workflow context
+  const mockPreviousNodes: PreviousWorkflowNode[] = [
+    {
+      id: "start-node-1",
+      label: "Workflow Start",
+      type: "START",
+      outputs: {
+        startTime: {
+          key: "startTime",
+          label: "Start Time",
+          type: "string",
+          description: "Timestamp when workflow started.",
+        },
+        initialPayload: {
+          key: "initialPayload",
+          label: "Initial Payload",
+          type: "object",
+          description: "Data provided at workflow initiation.",
+          children: [
+            { key: "userId", label: "User ID", type: "string", description: "ID of the user." },
+            { key: "orderId", label: "Order ID", type: "string", description: "ID of the order." },
+            {
+              key: "customerInfo",
+              label: "Customer Information",
+              type: "object",
+              children: [
+                { key: "name", label: "Name", type: "string" },
+                { key: "email", label: "Email", type: "string" },
+                { key: "address", label: "Address", type: "string" },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    {
+      id: "task-node-1",
+      label: "Process Data",
+      type: "TASK",
+      outputs: {
+        processedResult: {
+          key: "processedResult",
+          label: "Processed Result",
+          type: "string",
+          description: "Output after data processing.",
+        },
+        status: {
+          key: "status",
+          label: "Status",
+          type: "string",
+          description: "Status of the processing (e.g., 'success', 'failed').",
+        },
+        dataCount: { key: "dataCount", label: "Data Count", type: "number", description: "Number of items processed." },
+      },
+    },
+    {
+      id: "http-request-node-1",
+      label: "Fetch User Data",
+      type: "HTTP_REQUEST",
+      outputs: {
+        responseBody: {
+          key: "responseBody",
+          label: "HTTP Response Body",
+          type: "object",
+          description: "The body of the HTTP response.",
+          children: [
+            { key: "username", label: "Username", type: "string" },
+            { key: "email", label: "User Email", type: "string" },
+            {
+              key: "profile",
+              label: "User Profile",
+              type: "object",
+              children: [
+                { key: "age", label: "Age", type: "number" },
+                { key: "country", label: "Country", type: "string" },
+              ],
+            },
+          ],
+        },
+        statusCode: { key: "statusCode", label: "Status Code", type: "number", description: "HTTP status code." },
+      },
+    },
+  ]
+
+  const mockCurrentNodeInputs: CurrentNodeInputField[] = [
+    { name: "inputData", label: "Input Data", type: "string", description: "Data to be processed by this node." },
+    {
+      name: "configParam",
+      label: "Configuration Parameter",
+      type: "number",
+      description: "A numerical configuration.",
+    },
+    {
+      name: "userEmail",
+      label: "User Email for Notification",
+      type: "string",
+      description: "Email address to send notifications.",
+    },
+  ]
+
+  const handleInputChange = (field: string, value: any) => {
+    const updatedData = { ...localData, [field]: value }
+    setLocalData(updatedData)
+    onUpdate(updatedData)
   }
 
-  // Reusable HTTP configuration rendering
-  const renderHttpConfig = (currentConfig: any, updateFn: (key: string, value: any) => void) => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="method">HTTP Method</Label>
-          <Select value={currentConfig.method || "GET"} onValueChange={(value) => updateFn("method", value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select method" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="GET">GET</SelectItem>
-              <SelectItem value="POST">POST</SelectItem>
-              <SelectItem value="PUT">PUT</SelectItem>
-              <SelectItem value="PATCH">PATCH</SelectItem>
-              <SelectItem value="DELETE">DELETE</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="timeout">Timeout (seconds)</Label>
-          <Input
-            id="timeout"
-            type="number"
-            value={currentConfig.timeout || 30}
-            onChange={(e) => updateFn("timeout", Number.parseInt(e.target.value))}
-          />
-        </div>
-      </div>
+  const handleArrayAdd = (field: string) => {
+    const currentArray = localData[field] || []
+    const updatedArray = [...currentArray, { key: "", value: "" }]
+    handleInputChange(field, updatedArray)
+  }
 
-      <div className="space-y-2">
-        <Label htmlFor="url">URL</Label>
-        <Input
-          id="url"
-          placeholder="https://api.example.com/endpoint"
-          value={currentConfig.url || ""}
-          onChange={(e) => updateFn("url", e.target.value)}
-        />
-      </div>
+  const handleArrayRemove = (field: string, index: number) => {
+    const currentArray = localData[field] || []
+    const updatedArray = currentArray.filter((_: any, i: number) => i !== index)
+    handleInputChange(field, updatedArray)
+  }
 
-      <Tabs defaultValue="headers" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="headers">Headers</TabsTrigger>
-          <TabsTrigger value="body">Body</TabsTrigger>
-          <TabsTrigger value="auth">Authentication</TabsTrigger>
-        </TabsList>
+  const handleArrayItemChange = (field: string, index: number, itemField: string, value: any) => {
+    const currentArray = localData[field] || []
+    const updatedArray = [...currentArray]
+    updatedArray[index] = { ...updatedArray[index], [itemField]: value }
+    handleInputChange(field, updatedArray)
+  }
 
-        <TabsContent value="headers" className="space-y-4">
-          <div className="space-y-2">
-            <Label>Headers</Label>
-            {(currentConfig.headers || []).map((header: any, index: number) => (
-              <div key={index} className="flex gap-2">
-                <Input
-                  placeholder="Header name"
-                  value={header.key || ""}
-                  onChange={(e) => {
-                    const newHeaders = [...(currentConfig.headers || [])]
-                    newHeaders[index] = { ...header, key: e.target.value }
-                    updateFn("headers", newHeaders)
-                  }}
-                />
-                <Input
-                  placeholder="Header value"
-                  value={header.value || ""}
-                  onChange={(e) => {
-                    const newHeaders = [...(currentConfig.headers || [])]
-                    newHeaders[index] = { ...header, value: e.target.value }
-                    updateFn("headers", newHeaders)
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    const newHeaders = (currentConfig.headers || []).filter((_: any, i: number) => i !== index)
-                    updateFn("headers", newHeaders)
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button
-              variant="outline"
-              onClick={() => {
-                const newHeaders = [...(currentConfig.headers || []), { key: "", value: "" }]
-                updateFn("headers", newHeaders)
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Header
-            </Button>
-          </div>
-        </TabsContent>
+  const openTreePicker = (fieldName: string) => {
+    setCurrentMappingField(fieldName)
+    setShowTreePicker(true)
+  }
 
-        <TabsContent value="body" className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="contentType">Content Type</Label>
-            <Select
-              value={currentConfig.contentType || "application/json"}
-              onValueChange={(value) => updateFn("contentType", value)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="application/json">application/json</SelectItem>
-                <SelectItem value="application/x-www-form-urlencoded">application/x-www-form-urlencoded</SelectItem>
-                <SelectItem value="text/plain">text/plain</SelectItem>
-                <SelectItem value="text/xml">text/xml</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="body">Request Body</Label>
-            <Textarea
-              id="body"
-              rows={6}
-              placeholder='{"key": "value"}'
-              value={currentConfig.body || ""}
-              onChange={(e) => updateFn("body", e.target.value)}
-            />
-          </div>
-        </TabsContent>
+  const handleMappingsChange = (newMappings: Record<string, string>) => {
+    if (currentMappingField && newMappings[currentMappingField]) {
+      handleInputChange(currentMappingField, newMappings[currentMappingField])
+    }
+  }
 
-        <TabsContent value="auth" className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="authType">Authentication Type</Label>
-            <Select value={currentConfig.authType || "none"} onValueChange={(value) => updateFn("authType", value)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                <SelectItem value="bearer">Bearer Token</SelectItem>
-                <SelectItem value="basic">Basic Auth</SelectItem>
-                <SelectItem value="apikey">API Key</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {currentConfig.authType === "bearer" && (
-            <div className="space-y-2">
-              <Label htmlFor="token">Bearer Token</Label>
-              <Input
-                id="token"
-                type="password"
-                placeholder="Enter bearer token"
-                value={currentConfig.token || ""}
-                onChange={(e) => updateFn("token", e.target.value)}
-              />
-            </div>
-          )}
-
-          {currentConfig.authType === "basic" && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input
-                  id="username"
-                  value={currentConfig.username || ""}
-                  onChange={(e) => updateFn("username", e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={currentConfig.password || ""}
-                  onChange={(e) => updateFn("password", e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          {currentConfig.authType === "apikey" && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="apiKeyName">API Key Name</Label>
-                <Input
-                  id="apiKeyName"
-                  placeholder="X-API-Key"
-                  value={currentConfig.apiKeyName || ""}
-                  onChange={(e) => updateFn("apiKeyName", e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="apiKeyValue">API Key Value</Label>
-                <Input
-                  id="apiKeyValue"
-                  type="password"
-                  value={currentConfig.apiKeyValue || ""}
-                  onChange={(e) => updateFn("apiKeyValue", e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
-  )
-
-  // Update the NodeConfigPanel to handle all node types properly and show appropriate configuration forms
-  const renderForm = () => {
+  const renderNodeSpecificFields = () => {
     switch (node.type) {
       case "start":
-      case "end":
         return (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            <div className="space-y-2">
+            <div>
               <Label htmlFor="description">Description</Label>
               <Textarea
                 id="description"
-                rows={3}
-                value={formData.description || ""}
-                onChange={(e) => handleChange("description", e.target.value)}
+                value={localData.description || ""}
+                onChange={(e) => handleInputChange("description", e.target.value)}
+                placeholder="Describe what this start node does..."
               />
             </div>
           </div>
@@ -265,40 +190,70 @@ export function NodeConfigPanel({ node, isOpen, onClose, onUpdate, onDelete }: N
       case "function":
         return (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            <div className="space-y-2">
+            <div>
               <Label htmlFor="description">Description</Label>
               <Textarea
                 id="description"
-                rows={3}
-                value={formData.description || ""}
-                onChange={(e) => handleChange("description", e.target.value)}
+                value={localData.description || ""}
+                onChange={(e) => handleInputChange("description", e.target.value)}
+                placeholder="Describe what this function does..."
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="parameters">Parameters (JSON)</Label>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="parameters">Parameters (JSON)</Label>
+                <Button variant="ghost" size="sm" onClick={() => openTreePicker("parameters")} className="h-8 w-8 p-0">
+                  <Link className="h-4 w-4" />
+                </Button>
+              </div>
               <Textarea
                 id="parameters"
-                rows={5}
                 value={
-                  formData.parameters
-                    ? typeof formData.parameters === "string"
-                      ? formData.parameters
-                      : JSON.stringify(formData.parameters, null, 2)
-                    : ""
+                  typeof localData.parameters === "string"
+                    ? localData.parameters
+                    : JSON.stringify(localData.parameters || {}, null, 2)
                 }
                 onChange={(e) => {
                   try {
                     const parsed = JSON.parse(e.target.value)
-                    handleChange("parameters", parsed)
+                    handleInputChange("parameters", parsed)
                   } catch {
-                    // If not valid JSON, store as string
-                    handleChange("parameters", e.target.value)
+                    handleInputChange("parameters", e.target.value)
                   }
                 }}
+                placeholder="Enter function parameters as JSON..."
+                className="font-mono text-sm"
+                rows={4}
+              />
+            </div>
+          </div>
+        )
+
+      case "condition":
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={localData.description || ""}
+                onChange={(e) => handleInputChange("description", e.target.value)}
+                placeholder="Describe what this condition checks..."
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="condition">Condition Expression</Label>
+                <Button variant="ghost" size="sm" onClick={() => openTreePicker("condition")} className="h-8 w-8 p-0">
+                  <Link className="h-4 w-4" />
+                </Button>
+              </div>
+              <Textarea
+                id="condition"
+                value={localData.condition || ""}
+                onChange={(e) => handleInputChange("condition", e.target.value)}
+                placeholder="e.g., data.status === 'approved'"
+                className="font-mono text-sm"
               />
             </div>
           </div>
@@ -307,349 +262,343 @@ export function NodeConfigPanel({ node, isOpen, onClose, onUpdate, onDelete }: N
       case "http_request":
         return (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            {renderHttpConfig(formData, handleChange)}
-          </div>
-        )
-
-      case "ai_copilot":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="model">AI Model</Label>
-              <Select value={formData.model || "gpt-4o"} onValueChange={(value) => handleChange("model", value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                  <SelectItem value="gpt-4">GPT-4</SelectItem>
-                  <SelectItem value="claude-3-opus">Claude 3 Opus</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="prompt">Prompt Template</Label>
-              <Textarea
-                id="prompt"
-                rows={4}
-                placeholder="Process the following data: {{input}}"
-                value={formData.prompt || ""}
-                onChange={(e) => handleChange("prompt", e.target.value)}
-              />
-            </div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="temperature">Temperature</Label>
-                <Input
-                  id="temperature"
-                  type="number"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={formData.temperature || 0.7}
-                  onChange={(e) => handleChange("temperature", Number.parseFloat(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="maxTokens">Max Tokens</Label>
-                <Input
-                  id="maxTokens"
-                  type="number"
-                  value={formData.maxTokens || 1000}
-                  onChange={(e) => handleChange("maxTokens", Number.parseInt(e.target.value))}
-                />
-              </div>
-            </div>
-          </div>
-        )
-
-      case "condition":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="condition">Condition</Label>
-              <Textarea
-                id="condition"
-                rows={3}
-                placeholder="data.status === 'approved'"
-                value={formData.condition || ""}
-                onChange={(e) => handleChange("condition", e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Enter a JavaScript expression that evaluates to true or false.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                rows={2}
-                value={formData.description || ""}
-                onChange={(e) => handleChange("description", e.target.value)}
-              />
-            </div>
-          </div>
-        )
-
-      case "timer":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="duration">Duration</Label>
-                <Input
-                  id="duration"
-                  type="number"
-                  value={formData.duration || 1}
-                  onChange={(e) => handleChange("duration", Number.parseInt(e.target.value))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="unit">Unit</Label>
-                <Select value={formData.unit || "minutes"} onValueChange={(value) => handleChange("unit", value)}>
+              <div>
+                <Label htmlFor="method">Method</Label>
+                <Select value={localData.method || "GET"} onValueChange={(value) => handleInputChange("method", value)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="seconds">Seconds</SelectItem>
-                    <SelectItem value="minutes">Minutes</SelectItem>
-                    <SelectItem value="hours">Hours</SelectItem>
-                    <SelectItem value="days">Days</SelectItem>
+                    <SelectItem value="GET">GET</SelectItem>
+                    <SelectItem value="POST">POST</SelectItem>
+                    <SelectItem value="PUT">PUT</SelectItem>
+                    <SelectItem value="DELETE">DELETE</SelectItem>
+                    <SelectItem value="PATCH">PATCH</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label htmlFor="timeout">Timeout (seconds)</Label>
+                <Input
+                  id="timeout"
+                  type="number"
+                  value={localData.timeout || 60}
+                  onChange={(e) => handleInputChange("timeout", Number.parseInt(e.target.value))}
+                />
+              </div>
             </div>
-          </div>
-        )
-
-      case "email":
-        return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="to">To</Label>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="url">URL</Label>
+                <Button variant="ghost" size="sm" onClick={() => openTreePicker("url")} className="h-8 w-8 p-0">
+                  <Link className="h-4 w-4" />
+                </Button>
+              </div>
               <Input
-                id="to"
-                placeholder="user@example.com"
-                value={formData.to || ""}
-                onChange={(e) => handleChange("to", e.target.value)}
+                id="url"
+                value={localData.url || ""}
+                onChange={(e) => handleInputChange("url", e.target.value)}
+                placeholder="https://api.example.com/endpoint"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="subject">Subject</Label>
-              <Input
-                id="subject"
-                placeholder="Email subject"
-                value={formData.subject || ""}
-                onChange={(e) => handleChange("subject", e.target.value)}
-              />
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Headers</Label>
+                <Button variant="outline" size="sm" onClick={() => handleArrayAdd("headers")}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Header
+                </Button>
+              </div>
+              {(localData.headers || []).map((header: any, index: number) => (
+                <div key={index} className="flex gap-2 mb-2">
+                  <Input
+                    placeholder="Header name"
+                    value={header.key || ""}
+                    onChange={(e) => handleArrayItemChange("headers", index, "key", e.target.value)}
+                  />
+                  <Input
+                    placeholder="Header value"
+                    value={header.value || ""}
+                    onChange={(e) => handleArrayItemChange("headers", index, "value", e.target.value)}
+                  />
+                  <Button variant="outline" size="sm" onClick={() => handleArrayRemove("headers", index)}>
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="body">Body</Label>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="body">Request Body</Label>
+                <Button variant="ghost" size="sm" onClick={() => openTreePicker("body")} className="h-8 w-8 p-0">
+                  <Link className="h-4 w-4" />
+                </Button>
+              </div>
               <Textarea
                 id="body"
+                value={localData.body || ""}
+                onChange={(e) => handleInputChange("body", e.target.value)}
+                placeholder="Request body content..."
                 rows={4}
-                placeholder="Email content..."
-                value={formData.body || ""}
-                onChange={(e) => handleChange("body", e.target.value)}
               />
             </div>
+            <div>
+              <Label htmlFor="authType">Authentication Type</Label>
+              <Select
+                value={localData.authType || "none"}
+                onValueChange={(value) => handleInputChange("authType", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="bearer">Bearer Token</SelectItem>
+                  <SelectItem value="basic">Basic Auth</SelectItem>
+                  <SelectItem value="apikey">API Key</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {localData.authType === "bearer" && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="token">Bearer Token</Label>
+                  <Button variant="ghost" size="sm" onClick={() => openTreePicker("token")} className="h-8 w-8 p-0">
+                    <Link className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Input
+                  id="token"
+                  type="password"
+                  value={localData.token || ""}
+                  onChange={(e) => handleInputChange("token", e.target.value)}
+                  placeholder="Bearer token..."
+                />
+              </div>
+            )}
+            {localData.authType === "basic" && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="username">Username</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openTreePicker("username")}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Link className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Input
+                    id="username"
+                    value={localData.username || ""}
+                    onChange={(e) => handleInputChange("username", e.target.value)}
+                    placeholder="Username..."
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="password">Password</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openTreePicker("password")}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Link className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={localData.password || ""}
+                    onChange={(e) => handleInputChange("password", e.target.value)}
+                    placeholder="Password..."
+                  />
+                </div>
+              </>
+            )}
+            {localData.authType === "apikey" && (
+              <>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="apiKeyName">API Key Name</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openTreePicker("apiKeyName")}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Link className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Input
+                    id="apiKeyName"
+                    value={localData.apiKeyName || ""}
+                    onChange={(e) => handleInputChange("apiKeyName", e.target.value)}
+                    placeholder="e.g., X-API-Key"
+                  />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="apiKeyValue">API Key Value</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openTreePicker("apiKeyValue")}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Link className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Input
+                    id="apiKeyValue"
+                    type="password"
+                    value={localData.apiKeyValue || ""}
+                    onChange={(e) => handleInputChange("apiKeyValue", e.target.value)}
+                    placeholder="API key value..."
+                  />
+                </div>
+              </>
+            )}
           </div>
         )
 
       case "interactive_form_http":
         return (
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="label">Node Label</Label>
-              <Input
-                id="label"
-                placeholder="Enter node label"
-                value={formData.label || ""}
-                onChange={(e) => handleChange("label", e.target.value)}
-              />
-            </div>
-
-            {/* Form Fields Configuration */}
-            <div className="space-y-2">
-              <Label>Form Fields</Label>
-              {(formData.formFields || []).map((field: any, index: number) => (
-                <Card key={index} className="p-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label>Name</Label>
-                      <Input
-                        placeholder="e.g., email"
-                        value={field.name || ""}
-                        onChange={(e) => {
-                          const newFields = [...(formData.formFields || [])]
-                          newFields[index] = { ...field, name: e.target.value }
-                          handleChange("formFields", newFields)
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Label</Label>
-                      <Input
-                        placeholder="e.g., Email Address"
-                        value={field.label || ""}
-                        onChange={(e) => {
-                          const newFields = [...(formData.formFields || [])]
-                          newFields[index] = { ...field, label: e.target.value }
-                          handleChange("formFields", newFields)
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-1 col-span-2">
-                      <Label>Type</Label>
-                      <Select
-                        value={field.type || "text"}
-                        onValueChange={(value) => {
-                          const newFields = [...(formData.formFields || [])]
-                          newFields[index] = { ...field, type: value }
-                          handleChange("formFields", newFields)
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="text">Text</SelectItem>
-                          <SelectItem value="email">Email</SelectItem>
-                          <SelectItem value="number">Number</SelectItem>
-                          <SelectItem value="password">Password</SelectItem>
-                          <SelectItem value="textarea">Textarea</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1 col-span-2">
-                      <Label>Placeholder</Label>
-                      <Input
-                        placeholder="e.g., enter your email"
-                        value={field.placeholder || ""}
-                        onChange={(e) => {
-                          const newFields = [...(formData.formFields || [])]
-                          newFields[index] = { ...field, placeholder: e.target.value }
-                          handleChange("formFields", newFields)
-                        }}
-                      />
-                    </div>
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Form Fields</Label>
+                <Button variant="outline" size="sm" onClick={() => handleArrayAdd("formFields")}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Field
+                </Button>
+              </div>
+              {(localData.formFields || []).map((field: any, index: number) => (
+                <Card key={index} className="p-3 mb-2">
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <Input
+                      placeholder="Field name"
+                      value={field.name || ""}
+                      onChange={(e) => handleArrayItemChange("formFields", index, "name", e.target.value)}
+                    />
+                    <Input
+                      placeholder="Field label"
+                      value={field.label || ""}
+                      onChange={(e) => handleArrayItemChange("formFields", index, "label", e.target.value)}
+                    />
                   </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="mt-3 w-full"
-                    onClick={() => {
-                      const newFields = (formData.formFields || []).filter((_: any, i: number) => i !== index)
-                      handleChange("formFields", newFields)
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" /> Remove Field
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <Select
+                      value={field.type || "text"}
+                      onValueChange={(value) => handleArrayItemChange("formFields", index, "type", value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="text">Text</SelectItem>
+                        <SelectItem value="email">Email</SelectItem>
+                        <SelectItem value="number">Number</SelectItem>
+                        <SelectItem value="password">Password</SelectItem>
+                        <SelectItem value="textarea">Textarea</SelectItem>
+                        <SelectItem value="select">Select</SelectItem>
+                        <SelectItem value="checkbox">Checkbox</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Placeholder"
+                      value={field.placeholder || ""}
+                      onChange={(e) => handleArrayItemChange("formFields", index, "placeholder", e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <label className="flex items-center space-x-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={field.required || false}
+                        onChange={(e) => handleArrayItemChange("formFields", index, "required", e.target.checked)}
+                      />
+                      <span>Required</span>
+                    </label>
+                    <Button variant="outline" size="sm" onClick={() => handleArrayRemove("formFields", index)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </Card>
               ))}
-              <Button
-                variant="outline"
-                className="w-full bg-transparent"
-                onClick={() => {
-                  const newFields = [
-                    ...(formData.formFields || []),
-                    { name: "", label: "", type: "text", placeholder: "" },
-                  ]
-                  handleChange("formFields", newFields)
-                }}
-              >
-                <Plus className="h-4 w-4 mr-2" /> Add Form Field
-              </Button>
             </div>
-
-            {/* HTTP Request Configuration */}
-            <div className="space-y-2">
-              <Label>HTTP Request</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label htmlFor="httpMethod">Method</Label>
-                  <Select
-                    value={formData.httpMethod || "POST"}
-                    onValueChange={(value) => handleChange("httpMethod", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="GET">GET</SelectItem>
-                      <SelectItem value="POST">POST</SelectItem>
-                      <SelectItem value="PUT">PUT</SelectItem>
-                      <SelectItem value="DELETE">DELETE</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="httpUrl">URL</Label>
-                  <Input
-                    id="httpUrl"
-                    placeholder="https://api.example.com/submit"
-                    value={formData.httpUrl || ""}
-                    onChange={(e) => handleChange("httpUrl", e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="httpBodyTemplate">Request Body Template (JSON)</Label>
-                <Textarea
-                  id="httpBodyTemplate"
-                  rows={5}
-                  placeholder='{"email": "{{email}}", "name": "{{name}}"}'
-                  value={formData.httpBodyTemplate || ""}
-                  onChange={(e) => handleChange("httpBodyTemplate", e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">Use `{"{{fieldName}}"}` to inject form values.</p>
+            <Separator />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="httpMethod">HTTP Method</Label>
+                <Select
+                  value={localData.httpMethod || "POST"}
+                  onValueChange={(value) => handleInputChange("httpMethod", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="POST">POST</SelectItem>
+                    <SelectItem value="PUT">PUT</SelectItem>
+                    <SelectItem value="PATCH">PATCH</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-
-            {/* Error Mapping Configuration */}
-            <div className="space-y-2">
-              <Label htmlFor="errorMapping">Error Mapping (JSON)</Label>
-              <Textarea
-                id="errorMapping"
-                rows={3}
-                placeholder='{"backend_email_error": "email", "backend_name_error": "name"}'
-                value={
-                  formData.errorMapping
-                    ? typeof formData.errorMapping === "string"
-                      ? formData.errorMapping
-                      : JSON.stringify(formData.errorMapping, null, 2)
-                    : ""
-                }
-                onChange={(e) => {
-                  try {
-                    const parsed = JSON.parse(e.target.value)
-                    handleChange("errorMapping", parsed)
-                  } catch {
-                    handleChange("errorMapping", e.target.value)
-                  }
-                }}
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="httpUrl">HTTP URL</Label>
+                <Button variant="ghost" size="sm" onClick={() => openTreePicker("httpUrl")} className="h-8 w-8 p-0">
+                  <Link className="h-4 w-4" />
+                </Button>
+              </div>
+              <Input
+                id="httpUrl"
+                value={localData.httpUrl || ""}
+                onChange={(e) => handleInputChange("httpUrl", e.target.value)}
+                placeholder="https://api.example.com/submit"
               />
-              <p className="text-xs text-muted-foreground">Map backend error keys to your form field names.</p>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="httpBodyTemplate">Request Body Template</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => openTreePicker("httpBodyTemplate")}
+                  className="h-8 w-8 p-0"
+                >
+                  <Link className="h-4 w-4" />
+                </Button>
+              </div>
+              <Textarea
+                id="httpBodyTemplate"
+                value={localData.httpBodyTemplate || ""}
+                onChange={(e) => handleInputChange("httpBodyTemplate", e.target.value)}
+                placeholder='{"field1": "{{field1}}", "field2": "{{field2}}"}'
+                className="font-mono text-sm"
+                rows={4}
+              />
+            </div>
+          </div>
+        )
+
+      case "end":
+        return (
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={localData.description || ""}
+                onChange={(e) => handleInputChange("description", e.target.value)}
+                placeholder="Describe what this end node represents..."
+              />
             </div>
           </div>
         )
@@ -657,17 +606,13 @@ export function NodeConfigPanel({ node, isOpen, onClose, onUpdate, onDelete }: N
       default:
         return (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="label">Label</Label>
-              <Input id="label" value={formData.label || ""} onChange={(e) => handleChange("label", e.target.value)} />
-            </div>
-            <div className="space-y-2">
+            <div>
               <Label htmlFor="description">Description</Label>
               <Textarea
                 id="description"
-                rows={3}
-                value={formData.description || ""}
-                onChange={(e) => handleChange("description", e.target.value)}
+                value={localData.description || ""}
+                onChange={(e) => handleInputChange("description", e.target.value)}
+                placeholder="Describe this node..."
               />
             </div>
           </div>
@@ -678,36 +623,62 @@ export function NodeConfigPanel({ node, isOpen, onClose, onUpdate, onDelete }: N
   if (!isOpen) return null
 
   return (
-    <div className="w-80 border-l bg-background flex flex-col">
+    <div className="w-80 border-l bg-background flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b">
-        <h3 className="font-medium">Node Configuration</h3>
-        <Button variant="ghost" size="icon" onClick={onClose}>
+        <h3 className="font-semibold">Node Configuration</h3>
+        <Button variant="ghost" size="sm" onClick={onClose}>
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      <ScrollArea className="flex-1 p-4">
-        <div className="space-y-6">
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-6">
+          {/* Node Info */}
           <div className="space-y-2">
-            <Label>Node Type</Label>
-            <div className="p-2 bg-muted rounded-md text-sm">{node.type}</div>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">{node.type}</Badge>
+              <span className="text-sm text-muted-foreground">ID: {node.id}</span>
+            </div>
+            <div>
+              <Label htmlFor="label">Node Label</Label>
+              <Input
+                id="label"
+                value={localData.label || ""}
+                onChange={(e) => handleInputChange("label", e.target.value)}
+                placeholder="Enter node label..."
+              />
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Node ID</Label>
-            <div className="p-2 bg-muted rounded-md text-sm">{node.id}</div>
-          </div>
+          <Separator />
 
-          {renderForm()}
+          {/* Node-specific fields */}
+          {renderNodeSpecificFields()}
         </div>
       </ScrollArea>
 
+      {/* Actions */}
       <div className="p-4 border-t">
-        <Button variant="destructive" className="w-full" onClick={onDelete}>
-          <Trash className="mr-2 h-4 w-4" />
+        <Button variant="destructive" size="sm" onClick={onDelete} className="w-full">
+          <Trash2 className="h-4 w-4 mr-2" />
           Delete Node
         </Button>
       </div>
+
+      {/* TreePicker Dialog */}
+      <Dialog open={showTreePicker} onOpenChange={setShowTreePicker}>
+        <DialogContent className="max-w-4xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Map Data for {currentMappingField}</DialogTitle>
+          </DialogHeader>
+          <TreePicker
+            previousNodes={mockPreviousNodes}
+            currentNodeInputs={mockCurrentNodeInputs}
+            initialMappings={{ [currentMappingField]: localData[currentMappingField] || "" }}
+            onMappingsChange={handleMappingsChange}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

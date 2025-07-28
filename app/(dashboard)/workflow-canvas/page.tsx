@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useCallback, useState, useRef, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import ReactFlow, {
   MiniMap,
@@ -13,113 +13,129 @@ import ReactFlow, {
   addEdge,
   type Connection,
   type Edge,
-  type Node,
-  type NodeTypes,
   Panel,
-  useReactFlow,
   ReactFlowProvider,
+  type Node,
+  useReactFlow,
   ConnectionLineType,
 } from "reactflow"
 import "reactflow/dist/style.css"
+import { stringify } from "yaml"
 import { Button } from "@/components/ui/button"
-import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Save, Download, ZoomIn, Undo, Redo, MoreHorizontal, Eye, Loader2 } from "lucide-react"
-import Link from "next/link"
-import { NodePalette } from "@/components/node-palette"
-import { NodeDetailsPanel } from "@/components/node-details-panel"
-import { CanvasContextMenu } from "@/components/canvas-context-menu"
-import { CollaborationIndicator } from "@/components/collaboration-indicator"
-import { YamlPreview } from "@/components/yaml-preview"
-import { ConditionalEdgeDialog } from "@/components/conditional-edge-dialog"
 import { StartNode } from "@/components/flow-nodes/start-node"
 import { FunctionNode } from "@/components/flow-nodes/function-node"
 import { ConditionNode } from "@/components/flow-nodes/condition-node"
 import { EndNode } from "@/components/flow-nodes/end-node"
 import { InteractiveFormHttpNode } from "@/components/flow-nodes/interactive-form-http-node"
-import { HttpRequestNode } from "@/components/flow-nodes/http-request-node" // New import
-import { stringify, parse } from "yaml"
+import { HttpRequestNode } from "@/components/flow-nodes/http-request-node"
+import { NodePalette } from "@/components/node-palette"
+import { NodeConfigPanel } from "@/components/node-config-panel"
 import { transformWorkflowToBackendPayload } from "@/lib/workflow-transformer"
+import { useToast } from "@/components/ui/use-toast"
+import { Loader2, ArrowLeft, Download, ZoomIn, Undo, Redo, MoreHorizontal, Eye, Save } from "lucide-react"
+import Link from "next/link"
+import { CanvasContextMenu } from "@/components/canvas-context-menu"
+import { CollaborationIndicator } from "@/components/collaboration-indicator"
+import { YamlPreview } from "@/components/yaml-preview"
+import { ConditionalEdgeDialog } from "@/components/conditional-edge-dialog"
+import type { BackendWorkflow } from "@/types/workflow"
 
-// Define custom node types
-const nodeTypes: NodeTypes = {
+const nodeTypes = {
   start: StartNode,
   function: FunctionNode,
   condition: ConditionNode,
   end: EndNode,
-  http_request: HttpRequestNode, // Changed from http_call
-  ai_copilot: FunctionNode,
-  form: FunctionNode,
-  timer: FunctionNode,
-  email: FunctionNode,
-  webhook: FunctionNode,
-  database: FunctionNode,
-  file_upload: FunctionNode,
-  custom_subgraph: FunctionNode,
   interactive_form_http: InteractiveFormHttpNode,
+  http_request: HttpRequestNode,
 }
 
-// Initial nodes and edges
 const initialNodes: Node[] = [
   {
-    id: "1",
+    id: "start-node-1",
     type: "start",
     position: { x: 250, y: 50 },
-    data: { label: "Start Onboarding" },
+    data: { label: "Workflow Start", description: "Entry point of the workflow." },
   },
   {
-    id: "2",
-    type: "interactive_form_http",
-    position: { x: 250, y: 150 },
-    data: {
-      label: "User Registration",
-      formFields: [
-        { name: "name", label: "Full Name", type: "text", placeholder: "John Doe" },
-        { name: "email", label: "Email Address", type: "email", placeholder: "john@example.com" },
-        { name: "password", label: "Password", type: "password" },
-      ],
-      httpMethod: "POST",
-      httpUrl: "https://api.example.com/register",
-      httpBodyTemplate: '{"name": "{{name}}", "email": "{{email}}", "password": "{{password}}"}',
-      errorMapping: {
-        email: "email",
-        name: "name",
-        password: "password",
-      },
-    },
+    id: "task-node-1",
+    type: "function",
+    position: { x: 250, y: 200 },
+    data: { label: "Process Data", parameters: { input: "initial_data" } },
   },
   {
-    id: "3",
-    type: "http_request", // Example of the new node type
-    position: { x: 500, y: 150 },
+    id: "http-request-node-1",
+    type: "http_request",
+    position: { x: 500, y: 200 },
     data: {
       label: "Fetch User Data",
       method: "GET",
-      url: "https://api.example.com/users/{{userId}}",
+      url: "https://api.example.com/users/{{get('task-node-1.output.userId')}}",
+      headers: [{ key: "Authorization", value: "Bearer token" }],
+      body: "",
+      authType: "bearer",
+      token: "your_token_here",
       timeout: 60,
-      headers: [{ key: "Authorization", value: "Bearer {{token}}" }],
     },
   },
   {
-    id: "4",
+    id: "condition-node-1",
     type: "condition",
-    position: { x: 250, y: 250 },
-    data: { label: "Validate Basic Info", condition: "data.email && data.name && data.phone" },
+    position: { x: 250, y: 350 },
+    data: {
+      label: "Check Status",
+      condition: "data.status === 'approved'",
+      description: "Checks if the status is approved.",
+    },
+  },
+  {
+    id: "form-node-1",
+    type: "interactive_form_http",
+    position: { x: 500, y: 400 },
+    data: {
+      label: "User Feedback Form",
+      formFields: [
+        { name: "feedback", label: "Your Feedback", type: "textarea", placeholder: "Enter feedback" },
+        { name: "rating", label: "Rating", type: "number", placeholder: "1-5" },
+      ],
+      httpMethod: "POST",
+      httpUrl: "https://api.example.com/feedback",
+      httpBodyTemplate: '{"feedback": "{{feedback}}", "rating": {{rating}}}',
+      errorMapping: { api_error_message: "feedback" },
+    },
+  },
+  {
+    id: "end-node-1",
+    type: "end",
+    position: { x: 250, y: 500 },
+    data: { label: "Workflow End", description: "End point of the workflow." },
   },
 ]
 
-const initialEdges: Edge[] = [
-  { id: "e1-2", source: "1", target: "2", animated: true },
+const initialEdges = [
+  { id: "e1-2", source: "start-node-1", target: "task-node-1", animated: true },
+  { id: "e2-3", source: "task-node-1", target: "condition-node-1", animated: true },
   {
-    id: "e2-4",
-    source: "2",
-    target: "4",
+    id: "e3-4-true",
+    source: "condition-node-1",
+    target: "http-request-node-1",
     animated: true,
-    data: { edgeType: "on_success" },
+    label: "True",
+    data: { edgeType: "on_true" },
     style: { stroke: "#22c55e", strokeWidth: 2 },
-    label: "on success",
     labelStyle: { fill: "#22c55e", fontWeight: 600 },
   },
-  { id: "e3-4", source: "3", target: "4", animated: true }, // Connect new HTTP Request node
+  {
+    id: "e3-5-false",
+    source: "condition-node-1",
+    target: "form-node-1",
+    animated: true,
+    label: "False",
+    data: { edgeType: "on_false" },
+    style: { stroke: "#ef4444", strokeWidth: 2 },
+    labelStyle: { fill: "#ef4444", fontWeight: 600 },
+  },
+  { id: "e4-6", source: "http-request-node-1", target: "end-node-1", animated: true },
+  { id: "e5-6", source: "form-node-1", target: "end-node-1", animated: true },
 ]
 
 function WorkflowCanvasContent() {
@@ -147,7 +163,7 @@ function WorkflowCanvasContent() {
   const [showYamlPreview, setShowYamlPreview] = useState(false)
   const [undoStack, setUndoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
   const [redoStack, setRedoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
-  const [isSubmitting, setIsSubmitting] = useState(false) // New state for submission loading
+  const [isSaving, setIsSaving] = useState(false) // Changed from isExporting to isSaving
   const { project, fitView, getNodes, getEdges } = useReactFlow()
 
   // Get workflow ID from query params
@@ -192,156 +208,12 @@ function WorkflowCanvasContent() {
     }
   }
 
-  // Convert canvas data to YAML workflow format
+  // Convert canvas data to YAML workflow format (now uses backend payload)
   const convertToYamlWorkflow = useCallback(() => {
     const currentNodes = getNodes()
     const currentEdges = getEdges()
-
-    // Create a map of node connections with edge types
-    const nodeConnections = new Map<
-      string,
-      {
-        next?: string
-        onSuccess?: string
-        onFailure?: string
-        onTrue?: string
-        onFalse?: string
-      }
-    >()
-
-    currentEdges.forEach((edge) => {
-      const sourceId = edge.source
-      const targetId = edge.target
-      const edgeType = edge.data?.edgeType || "default"
-
-      const existingConnections = nodeConnections.get(sourceId) || {}
-
-      switch (edgeType) {
-        case "on_success":
-          existingConnections.onSuccess = targetId
-          break
-        case "on_failure":
-          existingConnections.onFailure = targetId
-          break
-        case "on_true":
-          existingConnections.onTrue = targetId
-          break
-        case "on_false":
-          existingConnections.onFalse = targetId
-          break
-        default:
-          existingConnections.next = targetId
-          break
-      }
-
-      nodeConnections.set(sourceId, existingConnections)
-    })
-
-    // Convert nodes to workflow steps
-    const steps = currentNodes.map((node) => {
-      const connections = nodeConnections.get(node.id) || {}
-      const baseStep = {
-        id: node.id,
-        name: node.data.label || `Step ${node.id}`,
-        type: node.type,
-      }
-
-      // Add type-specific properties
-      switch (node.type) {
-        case "start":
-          return {
-            ...baseStep,
-            next: connections.next || null,
-          }
-
-        case "function":
-        case "ai_copilot":
-        case "form":
-        case "timer":
-        case "email":
-        case "webhook":
-        case "database":
-        case "file_upload":
-        case "custom_subgraph":
-          return {
-            ...baseStep,
-            ...(node.data.parameters && { parameters: node.data.parameters }),
-            ...(node.data.description && { description: node.data.description }),
-            ...(connections.next && { next: connections.next }),
-            ...(connections.onSuccess && { onSuccess: connections.onSuccess }),
-            ...(connections.onFailure && { onFailure: connections.onFailure }),
-          }
-        case "http_request": // Handle the new http_request node type
-          return {
-            ...baseStep,
-            method: node.data.method,
-            url: node.data.url,
-            ...(node.data.timeout && { timeout: node.data.timeout }),
-            ...(node.data.headers && { headers: node.data.headers }),
-            ...(node.data.body && { body: node.data.body }),
-            ...(node.data.contentType && { contentType: node.data.contentType }),
-            ...(node.data.authType && { authType: node.data.authType }),
-            ...(node.data.token && { token: node.data.token }),
-            ...(node.data.username && { username: node.data.username }),
-            ...(node.data.password && { password: node.data.password }),
-            ...(node.data.apiKeyName && { apiKeyName: node.data.apiKeyName }),
-            ...(node.data.apiKeyValue && { apiKeyValue: node.data.apiKeyValue }),
-            ...(connections.next && { next: connections.next }),
-            ...(connections.onSuccess && { onSuccess: connections.onSuccess }),
-            ...(connections.onFailure && { onFailure: connections.onFailure }),
-          }
-        case "interactive_form_http":
-          return {
-            ...baseStep,
-            formFields: node.data.formFields,
-            httpMethod: node.data.httpMethod,
-            httpUrl: node.data.httpUrl,
-            ...(node.data.httpBodyTemplate && { httpBodyTemplate: node.data.httpBodyTemplate }),
-            ...(node.data.errorMapping && { errorMapping: node.data.errorMapping }),
-            ...(connections.next && { next: connections.next }),
-            ...(connections.onSuccess && { onSuccess: connections.onSuccess }),
-            ...(connections.onFailure && { onFailure: connections.onFailure }),
-          }
-
-        case "condition":
-          return {
-            ...baseStep,
-            condition: node.data.condition || "true",
-            ...(connections.onTrue && { onTrue: connections.onTrue }),
-            ...(connections.onFalse && { onFalse: connections.onFalse }),
-          }
-
-        case "end":
-          return {
-            ...baseStep,
-            next: null,
-          }
-
-        default:
-          return {
-            ...baseStep,
-            next: connections.next || null,
-          }
-      }
-    })
-
-    // Create the complete workflow object
-    const workflow = {
-      name: "Canvas Workflow", // Default name, could be made configurable
-      description: "Workflow created using the visual canvas editor", // Default description
-      version: "1.0",
-      triggers: [
-        {
-          type: "webhook",
-          config: {
-            url: "/api/triggers/canvas-workflow",
-          },
-        },
-      ],
-      steps: steps,
-    }
-
-    return stringify(workflow, { indent: 2 })
+    const backendWorkflow = transformWorkflowToBackendPayload(currentNodes, currentEdges)
+    return stringify(backendWorkflow, { indent: 2 })
   }, [getNodes, getEdges])
 
   // Handle YAML preview
@@ -643,16 +515,7 @@ function WorkflowCanvasContent() {
     [project, getNodes, getEdges, setNodes, setUndoStack, setRedoStack],
   )
 
-  // Handle save
-  const handleSave = () => {
-    // Here you would save the workflow to your backend
-    toast({
-      title: "Workflow saved",
-      description: "Your workflow has been saved successfully.",
-    })
-  }
-
-  // Handle export
+  // Handle export (React Flow JSON)
   const handleExport = () => {
     const workflow = {
       nodes: getNodes(),
@@ -663,11 +526,16 @@ function WorkflowCanvasContent() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `workflow-${workflowId || "new"}.json`
+    a.download = `workflow-canvas-${workflowId || "new"}.json`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
+
+    toast({
+      title: "Canvas Exported",
+      description: "Your canvas layout has been exported as JSON.",
+    })
   }
 
   // Handle auto-layout
@@ -697,69 +565,46 @@ function WorkflowCanvasContent() {
     }, 100)
   }
 
-  // Handle Save & Submit Workflow
-  const handleSubmitWorkflow = async () => {
-    setIsSubmitting(true)
+  // Handle Save Workflow (now exports backend-compatible DAG)
+  const handleSaveWorkflow = async () => {
+    setIsSaving(true)
     try {
-      const yamlWorkflow = convertToYamlWorkflow()
-      const parsedWorkflow = parse(yamlWorkflow) // Parse YAML string to JS object
+      const currentNodes = getNodes()
+      const currentEdges = getEdges()
 
-      // Extract name and description from the parsed workflow
-      const workflowName = parsedWorkflow.name || "Untitled Workflow"
-      const workflowDescription = parsedWorkflow.description || "Workflow created from canvas."
+      // Transform to backend payload
+      const backendWorkflow: BackendWorkflow = transformWorkflowToBackendPayload(currentNodes, currentEdges)
 
-      const workflowPayload = transformWorkflowToBackendPayload({
-        name: workflowName,
-        description: workflowDescription,
-        steps: parsedWorkflow.steps,
+      // Create and download the file
+      const blob = new Blob([JSON.stringify(backendWorkflow, null, 2)], {
+        type: "application/json",
       })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
 
-      const response = await fetch("https://dev-workflow.pixl.ai/api/workflows/definitions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(workflowPayload),
-      })
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
+      a.download = `workflow-backend-model-${workflowId || "new"}-${timestamp}.json`
 
-      if (!response) throw new Error("Network error: could not reach the workflow API.")
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
 
-      if (!response.ok) {
-        const errorData = await response.json()
-
-        // FastAPI validation errors come back as an array in `detail`.
-        let readableMessage = "Failed to create workflow."
-        if (Array.isArray(errorData?.detail)) {
-          readableMessage = errorData.detail
-            .map(
-              (d: any) =>
-                // `loc` is usually an array like ["body", "steps", 0, "action_type"]
-                `${Array.isArray(d.loc) ? d.loc.join(".") : d.loc}: ${d.msg}`,
-            )
-            .join("\n")
-        } else if (typeof errorData?.detail === "string") {
-          readableMessage = errorData.detail
-        } else {
-          // Fallback – stringify the entire payload for debugging
-          readableMessage = JSON.stringify(errorData, null, 2)
-        }
-
-        throw new Error(readableMessage)
-      }
-
-      const result = await response.json()
       toast({
-        title: "Workflow Submitted!",
-        description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
+        title: "Workflow Saved!",
+        description: `Workflow has been exported in backend-compatible format.`,
       })
-      router.push(`/workflow/${result.id}`) // Redirect to the new workflow's page
     } catch (error: any) {
       toast({
-        title: "Error submitting workflow",
-        description: error?.message ?? "An unexpected error occurred.",
+        title: "Error saving workflow",
+        description: error?.message ?? "An unexpected error occurred while saving the workflow.",
         variant: "destructive",
       })
-      console.error("Error submitting workflow:", error)
+      console.error("Error saving workflow:", error)
     } finally {
-      setIsSubmitting(false)
+      setIsSaving(false)
     }
   }
 
@@ -801,18 +646,18 @@ function WorkflowCanvasContent() {
           </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4" />
-            <span className="sr-only">Export</span>
+            <span className="sr-only">Export Canvas JSON</span>
           </Button>
-          <Button size="sm" onClick={handleSubmitWorkflow} disabled={isSubmitting}>
-            {isSubmitting ? (
+          <Button size="sm" onClick={handleSaveWorkflow} disabled={isSaving}>
+            {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Submitting...
+                Saving...
               </>
             ) : (
               <>
                 <Save className="mr-2 h-4 w-4" />
-                Save & Submit
+                Save Workflow
               </>
             )}
           </Button>
@@ -886,7 +731,7 @@ function WorkflowCanvasContent() {
 
         {/* Node details panel */}
         {selectedNode && (
-          <NodeDetailsPanel
+          <NodeConfigPanel
             node={selectedNode}
             isOpen={isDetailsOpen}
             onClose={() => setIsDetailsOpen(false)}

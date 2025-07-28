@@ -12,6 +12,7 @@ interface BackendApiConfig {
   password?: string
   apiKeyName?: string
   apiKeyValue?: string
+  retry_policy?: BackendRetryPolicy
 }
 
 interface BackendFormField {
@@ -42,6 +43,11 @@ interface BackendStep {
   on_success?: string | null
   on_failure?: string | null
   next?: string | null
+  timeout_seconds?: number
+  max_retries?: number
+  retry_count?: number
+  context_mappings?: Array<{ from: string; to: string }>
+  position?: { x: number; y: number }
 }
 
 export interface CreateWorkflowRequestPayload {
@@ -50,151 +56,255 @@ export interface CreateWorkflowRequestPayload {
   steps: BackendStep[]
 }
 
-// Utility function to transform internal workflow representation to backend payload
-export function transformWorkflowToBackendPayload(workflow: any): CreateWorkflowRequestPayload {
-  const backendSteps: BackendStep[] = workflow.steps.map((step: any) => {
-    const backendStep: BackendStep = {
-      id: step.id,
-      name: step.name,
-      description: step.description,
-      input_fields: [], // Default empty
-    }
+interface BackendWorkflow {
+  name: string
+  description: string
+  nodes: { [key: string]: BackendNode }
+  edges: BackendEdge[]
+}
 
-    // Determine backend 'type' and 'action_type'
-    switch (step.type) {
+interface BackendNode {
+  id: string
+  name?: string
+  description?: string
+  type: NodeType
+  config: any
+  timeout_seconds?: number
+  max_retries?: number
+  retry_count?: number
+  context_mappings?: Array<{ from: string; to: string }>
+  position?: { x: number; y: number }
+}
+
+interface BackendEdge {
+  from_node: string
+  to_node: string
+  condition: EdgeCondition
+  priority: number
+}
+
+enum NodeType {
+  START = "START",
+  END = "END",
+  CONDITION = "CONDITION",
+  TASK = "TASK",
+  HTTP_REQUEST = "HTTP_REQUEST",
+}
+
+enum EdgeCondition {
+  DEFAULT = "DEFAULT",
+  SUCCESS = "SUCCESS",
+  FAILURE = "FAILURE",
+  TRUE = "TRUE",
+  FALSE = "FALSE",
+}
+
+export interface BackendRetryPolicy {
+  enabled: boolean
+  max_attempts: number
+}
+
+// Utility function to transform internal workflow representation to backend payload
+export function transformWorkflowToBackendPayload(
+  nodes: any[],
+  edges: any[],
+  workflowName = "Canvas Workflow",
+  workflowDescription = "Workflow created using the visual canvas editor",
+): BackendWorkflow {
+  const backendNodes: { [key: string]: BackendNode } = {}
+  const backendEdges: any[] = []
+
+  // Map React Flow Nodes to Backend Nodes
+  nodes.forEach((node: any) => {
+    let nodeType: NodeType
+    let config: any = {} // Use 'any' for now to allow flexible config structure
+
+    // Default values for backend node properties
+    const timeout_seconds = node.data.timeout || 300
+    const max_retries = 3
+    const retry_count = 0
+    const context_mappings: Array<{ from: string; to: string }> = [] // Placeholder for now
+
+    switch (node.type) {
       case "start":
-        backendStep.type = "START"
-        backendStep.action_type = "START_WORKFLOW"
-        backendStep.next = step.next
+        nodeType = NodeType.START
+        config = {
+          ui: {
+            context_schema: {}, // Placeholder
+          },
+        }
         break
       case "end":
-        backendStep.type = "END"
-        backendStep.action_type = "END_WORKFLOW"
+        nodeType = NodeType.END
+        config = {}
         break
       case "condition":
-        backendStep.type = "CONDITION"
-        backendStep.action_type = "EVALUATE_CONDITION"
-        // For condition nodes, onTrue maps to on_success, onFalse maps to on_failure
-        backendStep.on_success = step.onTrue
-        backendStep.on_failure = step.onFalse
-        // The condition expression itself might go into input_fields or a specific field if backend supports it.
-        backendStep.input_fields = [{ name: "condition_expression", value: step.condition }]
+        nodeType = NodeType.CONDITION
+        config = {
+          condition_expression: node.data.condition || "true",
+        }
         break
-      default: // All other types map to TASK
-        backendStep.type = "TASK"
-        backendStep.next = step.next
-        backendStep.on_success = step.onSuccess
-        backendStep.on_failure = step.onFailure
-
-        // Map specific action types and their configurations
-        switch (step.type) {
-          case "function":
-            backendStep.action_type = "GENERIC_FUNCTION"
-            if (step.parameters) {
-              backendStep.input_fields = [{ name: "parameters", value: step.parameters }]
-            }
-            break
-          case "http_request": // New case for HTTP_REQUEST
-            backendStep.action_type = "HTTP_REQUEST"
-            backendStep.api_config = {
-              url: step.url,
-              method: step.method,
-              timeout: step.timeout,
-              headers: step.headers,
-              body: step.body,
-              contentType: step.contentType,
-              authType: step.authType,
-              token: step.token,
-              username: step.username,
-              password: step.password,
-              apiKeyName: step.apiKeyName,
-              apiKeyValue: step.apiKeyValue,
-            }
-            break
-          case "ai_copilot":
-            backendStep.action_type = "AI_PROCESS"
-            backendStep.input_fields = [
-              { name: "aiModel", value: step.aiModel },
-              { name: "systemPrompt", value: step.systemPrompt },
-              { name: "userPrompt", value: step.userPrompt },
-              { name: "temperature", value: step.temperature },
-              { name: "maxTokens", value: step.maxTokens },
-            ]
-            break
-          case "form": // This maps to the backend's generic "TASK" with "USER_FORM_INPUT" action_type
-            backendStep.action_type = "USER_FORM_INPUT"
-            backendStep.form = {
-              title: step.formTitle,
-              description: step.formDescription,
-              fields: step.fields?.map((f: any) => ({
+      case "function":
+        nodeType = NodeType.TASK // Generic function maps to TASK
+        config = {
+          parameters: node.data.parameters || {},
+        }
+        break
+      case "http_request":
+        nodeType = NodeType.HTTP_REQUEST
+        const httpConfig: BackendApiConfig = {
+          url: node.data.url || "",
+          method: node.data.method || "GET",
+          timeout: node.data.timeout,
+          headers: node.data.headers || [],
+          body: node.data.body || "",
+          contentType: node.data.contentType || "application/json",
+          authType: node.data.authType || "none",
+          token: node.data.token,
+          username: node.data.username,
+          password: node.data.password,
+          apiKeyName: node.data.apiKeyName,
+          apiKeyValue: node.data.apiKeyValue,
+          retry_policy: { enabled: true, max_attempts: 2 }, // Default retry policy
+        }
+        config = httpConfig
+        break
+      case "interactive_form_http":
+        nodeType = NodeType.TASK // Interactive form maps to TASK
+        config = {
+          ui: {
+            form: {
+              name: node.data.label || "Form",
+              fields: (node.data.formFields || []).map((f: any) => ({
                 name: f.name,
                 type: f.type,
                 label: f.label,
                 placeholder: f.placeholder,
                 required: f.required,
               })),
-            }
-            break
-          case "timer":
-            backendStep.action_type = "WAIT_TIMER"
-            backendStep.input_fields = [
-              { name: "durationType", value: step.durationType },
-              { name: "duration", value: step.duration },
-              { name: "unit", value: step.unit },
-              { name: "variableName", value: step.variableName },
-              { name: "targetTime", value: step.targetTime },
-              { name: "allowCancel", value: step.allowCancel },
-            ]
-            break
-          case "email":
-            backendStep.action_type = "SEND_EMAIL"
-            backendStep.input_fields = [
-              { name: "to", value: step.to },
-              { name: "subject", value: step.subject },
-              { name: "body", value: step.body },
-            ]
-            break
-          case "webhook":
-            backendStep.action_type = "SEND_WEBHOOK"
-            backendStep.input_fields = [
-              { name: "url", value: step.url },
-              { name: "method", value: step.method },
-              { name: "payload", value: step.payload },
-            ]
-            break
-          case "database":
-            backendStep.action_type = "DATABASE_OPERATION"
-            backendStep.input_fields = [
-              { name: "operation", value: step.operation },
-              { name: "table", value: step.table },
-              { name: "query", value: step.query },
-              { name: "data", value: step.data },
-            ]
-            break
-          case "file_upload":
-            backendStep.action_type = "FILE_UPLOAD_OPERATION"
-            backendStep.input_fields = [
-              { name: "storagePath", value: step.storagePath },
-              { name: "allowedTypes", value: step.allowedTypes },
-              { name: "maxSize", value: step.maxSize },
-            ]
-            break
-          case "custom_subgraph":
-            backendStep.action_type = "EXECUTE_SUBGRAPH"
-            backendStep.input_fields = [
-              { name: "subgraphId", value: step.subgraphId },
-              { name: "inputs", value: step.inputs },
-            ]
-            break
+            },
+          },
+          url: node.data.httpUrl || "",
+          method: node.data.httpMethod || "POST",
+          body: node.data.httpBodyTemplate || "",
+          // Add other HTTP related fields if they are part of the backend's interactive form config
+          retry_policy: { enabled: true, max_attempts: 2 }, // Default retry policy
         }
         break
+      case "ai_copilot":
+        nodeType = NodeType.TASK
+        config = {
+          aiModel: node.data.aiModel,
+          systemPrompt: node.data.systemPrompt,
+          userPrompt: node.data.userPrompt,
+          temperature: node.data.temperature,
+          maxTokens: node.data.maxTokens,
+        }
+        break
+      case "timer":
+        nodeType = NodeType.TASK
+        config = {
+          durationType: node.data.durationType,
+          duration: node.data.duration,
+          unit: node.data.unit,
+          variableName: node.data.variableName,
+          targetTime: node.data.targetTime,
+          allowCancel: node.data.allowCancel,
+        }
+        break
+      case "email":
+        nodeType = NodeType.TASK
+        config = {
+          to: node.data.to,
+          subject: node.data.subject,
+          body: node.data.body,
+        }
+        break
+      case "webhook":
+        nodeType = NodeType.TASK
+        config = {
+          url: node.data.url,
+          method: node.data.method,
+          payload: node.data.payload,
+        }
+        break
+      case "database":
+        nodeType = NodeType.TASK
+        config = {
+          operation: node.data.operation,
+          table: node.data.table,
+          query: node.data.query,
+          data: node.data.data,
+        }
+        break
+      case "file_upload":
+        nodeType = NodeType.TASK
+        config = {
+          storagePath: node.data.storagePath,
+          allowedTypes: node.data.allowedTypes,
+          maxSize: node.data.maxSize,
+        }
+        break
+      case "custom_subgraph":
+        nodeType = NodeType.TASK
+        config = {
+          subgraphId: node.data.subgraphId,
+          inputs: node.data.inputs,
+        }
+        break
+      default:
+        nodeType = NodeType.TASK // Default to TASK for unknown types
+        config = {}
+        break
     }
-    return backendStep
+
+    backendNodes[node.id] = {
+      id: node.id,
+      name: node.data.label || `Node ${node.id}`,
+      description: node.data.description || null,
+      type: nodeType,
+      config: config,
+      timeout_seconds: timeout_seconds,
+      max_retries: max_retries,
+      retry_count: retry_count,
+      context_mappings: context_mappings,
+      position: node.position, // Store React Flow position
+    }
+  })
+
+  // Map React Flow Edges to Backend Edges
+  edges.forEach((edge: any) => {
+    let condition: EdgeCondition = EdgeCondition.DEFAULT
+    switch (edge.data?.edgeType) {
+      case "on_success":
+        condition = EdgeCondition.SUCCESS
+        break
+      case "on_failure":
+        condition = EdgeCondition.FAILURE
+        break
+      case "on_true":
+        condition = EdgeCondition.TRUE
+        break
+      case "on_false":
+        condition = EdgeCondition.FALSE
+        break
+      default:
+        condition = EdgeCondition.DEFAULT
+        break
+    }
+
+    backendEdges.push({
+      from_node: edge.source,
+      to_node: edge.target,
+      condition: condition,
+      priority: 0, // Default priority
+    })
   })
 
   return {
-    name: workflow.name,
-    description: workflow.description,
-    steps: backendSteps,
+    name: workflowName,
+    description: workflowDescription,
+    nodes: backendNodes,
+    edges: backendEdges,
   }
 }
