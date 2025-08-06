@@ -8,7 +8,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { DialogFooter } from "@/components/ui/dialog"
 import type { PreviousWorkflowNode, CurrentNodeInputField } from "@/types/workflow"
 import { NodeOutputTree } from "./node-output-tree"
-import { InputMappingSlot } from "./input-mapping-slot"
+import  {InputMappingSlot}  from "./input-mapping-slot"
 
 interface TreePickerProps {
   previousNodes: PreviousWorkflowNode[]

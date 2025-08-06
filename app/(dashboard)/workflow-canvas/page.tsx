@@ -575,27 +575,26 @@ function WorkflowCanvasContent() {
       // Transform to backend payload
       const backendWorkflow: BackendWorkflow = transformWorkflowToBackendPayload(currentNodes, currentEdges)
 
-      // Create and download the file
-      const blob = new Blob([JSON.stringify(backendWorkflow, null, 2)], {
-        type: "application/json",
+      // Replace the file download logic with an API call
+      const response = await fetch("https://dev-workflow.pixl.ai/api/workflows/definitions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(backendWorkflow),
       })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
 
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5)
-      a.download = `workflow-backend-model-${workflowId || "new"}-${timestamp}.json`
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || "Failed to create workflow.")
+      }
 
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
+      const result = await response.json()
       toast({
         title: "Workflow Saved!",
-        description: `Workflow has been exported in backend-compatible format.`,
+        description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
       })
+      router.push(`/workflow/${result.id}`) // Redirect to the new workflow's page
     } catch (error: any) {
       toast({
         title: "Error saving workflow",
