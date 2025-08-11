@@ -726,9 +726,31 @@ function WorkflowCanvasContent() {
     }, 100)
   }
 
-  // Handle Save Workflow (supports both create and update)
+  // Handle Save Workflow (supports both create and update with comprehensive error handling)
   const handleSaveWorkflow = async () => {
+    // Check offline status before attempting to save
+    if (!isOnline) {
+      toast({
+        title: "Cannot Save Offline",
+        description: "You're currently offline. Please check your internet connection and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check API health before attempting to save
+    if (!apiHealthy) {
+      toast({
+        title: "Service Unavailable",
+        description: "The workflow service is currently unavailable. Please try again later.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsSaving(true)
+    setLastSaveAttempt(new Date())
+    
     try {
       const currentNodes = getNodes()
       const currentEdges = getEdges()
@@ -745,20 +767,30 @@ function WorkflowCanvasContent() {
       const isUpdating = !!workflowId
 
       if (isUpdating) {
-        // Update existing workflow
-        result = await updateWorkflow(workflowId, backendWorkflow)
+        // Update existing workflow with retry logic
+        result = await withRetry(
+          () => updateWorkflow(workflowId, backendWorkflow),
+          3, // max retries
+          1000 // base delay
+        )
         toast({
           title: "Workflow Updated!",
           description: `Workflow "${result.name}" has been successfully updated.`,
         })
+        setHasUnsavedChanges(false)
         // Stay on the same page - no navigation needed
       } else {
-        // Create new workflow
-        result = await createWorkflow(backendWorkflow)
+        // Create new workflow with retry logic
+        result = await withRetry(
+          () => createWorkflow(backendWorkflow),
+          3, // max retries
+          1000 // base delay
+        )
         toast({
           title: "Workflow Created!",
           description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
         })
+        setHasUnsavedChanges(false)
         // Navigate to the new workflow's canvas page
         router.push(`/workflow-canvas?id=${result.id}`)
       }
@@ -767,6 +799,27 @@ function WorkflowCanvasContent() {
       const isUpdating = !!workflowId
       const operation = isUpdating ? "updating" : "creating"
       
+      let errorMessage = `An unexpected error occurred while ${operation} the workflow.`
+      let showRetry = false
+
+      if (error instanceof WorkflowApiError) {
+        if (error.status === 0) {
+          errorMessage = `Network error while ${operation} workflow. Please check your connection and try again.`
+          showRetry = true
+        } else if (error.status === 413) {
+          errorMessage = "Workflow is too large. Please reduce the number of nodes or simplify the configuration."
+        } else if (error.status === 422) {
+          errorMessage = "Invalid workflow data. Please check your node configurations and try again."
+        } else if (error.status >= 500) {
+          errorMessage = `Server error while ${operation} workflow. Please try again later.`
+          showRetry = true
+        } else {
+          errorMessage = error.message
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message
+      }
+
       toast({
         title: `Error ${operation} workflow`,
         description: error?.message ?? `An unexpected error occurred while ${operation} the workflow.`,
@@ -1057,6 +1110,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
