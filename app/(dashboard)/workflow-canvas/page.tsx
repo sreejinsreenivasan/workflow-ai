@@ -637,7 +637,7 @@ function WorkflowCanvasContent() {
     }, 100)
   }
 
-  // Handle Save Workflow (now exports backend-compatible DAG)
+  // Handle Save Workflow (supports both create and update)
   const handleSaveWorkflow = async () => {
     setIsSaving(true)
     try {
@@ -652,33 +652,38 @@ function WorkflowCanvasContent() {
         workflowMetadata.description
       )
 
-      // Replace the file download logic with an API call
-      const response = await fetch("https://dev-workflow.pixl.ai/api/workflows/definitions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(backendWorkflow),
-      })
+      let result
+      const isUpdating = !!workflowId
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || "Failed to create workflow.")
+      if (isUpdating) {
+        // Update existing workflow
+        result = await updateWorkflow(workflowId, backendWorkflow)
+        toast({
+          title: "Workflow Updated!",
+          description: `Workflow "${result.name}" has been successfully updated.`,
+        })
+        // Stay on the same page - no navigation needed
+      } else {
+        // Create new workflow
+        result = await createWorkflow(backendWorkflow)
+        toast({
+          title: "Workflow Created!",
+          description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
+        })
+        // Navigate to the new workflow's canvas page
+        router.push(`/workflow-canvas?id=${result.id}`)
       }
 
-      const result = await response.json()
-      toast({
-        title: "Workflow Saved!",
-        description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
-      })
-      router.push(`/workflow/${result.id}`) // Redirect to the new workflow's page
     } catch (error: any) {
+      const isUpdating = !!workflowId
+      const operation = isUpdating ? "updating" : "creating"
+      
       toast({
-        title: "Error saving workflow",
-        description: error?.message ?? "An unexpected error occurred while saving the workflow.",
+        title: `Error ${operation} workflow`,
+        description: error?.message ?? `An unexpected error occurred while ${operation} the workflow.`,
         variant: "destructive",
       })
-      console.error("Error saving workflow:", error)
+      console.error(`Error ${operation} workflow:`, error)
     } finally {
       setIsSaving(false)
     }
@@ -897,6 +902,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
