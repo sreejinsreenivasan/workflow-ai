@@ -185,6 +185,57 @@ function WorkflowCanvasContent() {
   // Get workflow ID from query params
   const workflowId = searchParams.get("id")
 
+  // Offline detection and API health monitoring
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      // Check API health when coming back online
+      checkApiHealth().then(setApiHealthy)
+    }
+    
+    const handleOffline = () => {
+      setIsOnline(false)
+      setApiHealthy(false)
+    }
+
+    // Initial online status
+    setIsOnline(navigator.onLine)
+    
+    // Check API health on mount
+    checkApiHealth().then(setApiHealthy)
+
+    // Set up event listeners
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    // Periodic API health check (every 30 seconds)
+    const healthCheckInterval = setInterval(async () => {
+      if (navigator.onLine) {
+        const healthy = await checkApiHealth()
+        setApiHealthy(healthy)
+      }
+    }, 30000)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      clearInterval(healthCheckInterval)
+    }
+  }, [])
+
+  // Track unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges && !isOnline) {
+        e.preventDefault()
+        e.returnValue = 'You have unsaved changes and are currently offline. Are you sure you want to leave?'
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedChanges, isOnline])
+
   // Load workflow data when component mounts or workflowId changes
   useEffect(() => {
     const loadWorkflow = async () => {
@@ -974,6 +1025,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
