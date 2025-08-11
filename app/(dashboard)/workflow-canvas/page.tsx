@@ -932,6 +932,58 @@ function WorkflowCanvasContent() {
     }
   }
 
+  // Handle metadata editing
+  const handleStartEditingMetadata = useCallback(() => {
+    setEditingMetadata({
+      name: workflowMetadata.name,
+      description: workflowMetadata.description
+    })
+    setIsEditingMetadata(true)
+  }, [workflowMetadata])
+
+  const handleSaveMetadata = useCallback(() => {
+    // Validate metadata
+    if (!editingMetadata.name.trim()) {
+      toast({
+        title: "Invalid Name",
+        description: "Workflow name cannot be empty.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Update metadata
+    setWorkflowMetadata({
+      name: editingMetadata.name.trim(),
+      description: editingMetadata.description.trim()
+    })
+    setHasUnsavedChanges(true)
+    setIsEditingMetadata(false)
+
+    toast({
+      title: "Metadata Updated",
+      description: "Workflow name and description have been updated. Don't forget to save your workflow.",
+    })
+  }, [editingMetadata, toast])
+
+  const handleCancelEditingMetadata = useCallback(() => {
+    setIsEditingMetadata(false)
+    setEditingMetadata({
+      name: workflowMetadata.name,
+      description: workflowMetadata.description
+    })
+  }, [workflowMetadata])
+
+  const handleMetadataKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSaveMetadata()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleCancelEditingMetadata()
+    }
+  }, [handleSaveMetadata, handleCancelEditingMetadata])
+
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown)
     return () => {
@@ -1194,6 +1246,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
