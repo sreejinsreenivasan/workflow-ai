@@ -822,7 +822,7 @@ function WorkflowCanvasContent() {
 
       toast({
         title: `Error ${operation} workflow`,
-        description: error?.message ?? `An unexpected error occurred while ${operation} the workflow.`,
+        description: errorMessage,
         variant: "destructive",
       })
       console.error(`Error ${operation} workflow:`, error)
@@ -1110,6 +1110,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
