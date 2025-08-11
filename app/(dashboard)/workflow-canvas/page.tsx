@@ -169,6 +169,10 @@ function WorkflowCanvasContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [isOnline, setIsOnline] = useState(true)
+  const [apiHealthy, setApiHealthy] = useState(true)
+  const [lastSaveAttempt, setLastSaveAttempt] = useState<Date | null>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [workflowMetadata, setWorkflowMetadata] = useState<{
     name: string
     description: string
@@ -970,6 +974,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
