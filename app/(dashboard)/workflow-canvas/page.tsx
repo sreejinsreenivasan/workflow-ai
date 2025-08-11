@@ -147,6 +147,17 @@ function WorkflowCanvasContent() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
+
+  // Wrap node and edge change handlers to track unsaved changes
+  const handleNodesChange = useCallback((changes: any) => {
+    onNodesChange(changes)
+    setHasUnsavedChanges(true)
+  }, [onNodesChange])
+
+  const handleEdgesChange = useCallback((changes: any) => {
+    onEdgesChange(changes)
+    setHasUnsavedChanges(true)
+  }, [onEdgesChange])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [pendingConnection, setPendingConnection] = useState<{
     source: string
@@ -1173,6 +1184,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
