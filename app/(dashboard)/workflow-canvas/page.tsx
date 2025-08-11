@@ -691,6 +691,41 @@ function WorkflowCanvasContent() {
     }
   }
 
+  // Handle Delete Workflow
+  const handleDeleteWorkflow = async () => {
+    if (!workflowId) {
+      toast({
+        title: "Cannot Delete",
+        description: "Cannot delete a workflow that hasn't been saved yet.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      await deleteWorkflow(workflowId)
+      
+      toast({
+        title: "Workflow Deleted!",
+        description: `Workflow "${workflowMetadata.name}" has been successfully deleted.`,
+      })
+      
+      // Navigate back to library after successful deletion
+      router.push("/library")
+      
+    } catch (error: any) {
+      toast({
+        title: "Error deleting workflow",
+        description: error?.message ?? "An unexpected error occurred while deleting the workflow.",
+        variant: "destructive",
+      })
+      console.error("Error deleting workflow:", error)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown)
     return () => {
@@ -904,6 +939,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
