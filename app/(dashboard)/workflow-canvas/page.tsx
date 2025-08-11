@@ -31,9 +31,9 @@ import { HttpRequestNode } from "@/components/flow-nodes/http-request-node"
 import { NodePalette } from "@/components/node-palette"
 import { NodeConfigPanel } from "@/components/node-config-panel"
 import { transformWorkflowToBackendPayload } from "@/lib/workflow-transformer"
-import { getWorkflow, createWorkflow, updateWorkflow, transformApiResponseToCanvas, WorkflowApiError } from "@/lib/workflow-api"
+import { getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, transformApiResponseToCanvas, WorkflowApiError } from "@/lib/workflow-api"
 import { useToast } from "@/components/ui/use-toast"
-import { Loader2, ArrowLeft, Download, ZoomIn, Undo, Redo, MoreHorizontal, Eye, Save, AlertCircle } from "lucide-react"
+import { Loader2, ArrowLeft, Download, ZoomIn, Undo, Redo, MoreHorizontal, Eye, Save, AlertCircle, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { CanvasContextMenu } from "@/components/canvas-context-menu"
 import { CollaborationIndicator } from "@/components/collaboration-indicator"
@@ -902,6 +902,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
