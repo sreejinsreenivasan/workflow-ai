@@ -31,13 +31,17 @@ import { HttpRequestNode } from "@/components/flow-nodes/http-request-node"
 import { NodePalette } from "@/components/node-palette"
 import { NodeConfigPanel } from "@/components/node-config-panel"
 import { transformWorkflowToBackendPayload } from "@/lib/workflow-transformer"
+import { getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow, transformApiResponseToCanvas, WorkflowApiError, withRetry, checkApiHealth } from "@/lib/workflow-api"
 import { useToast } from "@/components/ui/use-toast"
-import { Loader2, ArrowLeft, Download, ZoomIn, Undo, Redo, MoreHorizontal, Eye, Save } from "lucide-react"
+import { Loader2, ArrowLeft, Download, ZoomIn, Undo, Redo, MoreHorizontal, Eye, Save, AlertCircle, Trash2, WifiOff, RefreshCw, Edit2, Check, X } from "lucide-react"
 import Link from "next/link"
 import { CanvasContextMenu } from "@/components/canvas-context-menu"
 import { CollaborationIndicator } from "@/components/collaboration-indicator"
 import { YamlPreview } from "@/components/yaml-preview"
 import { ConditionalEdgeDialog } from "@/components/conditional-edge-dialog"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import type { BackendWorkflow } from "@/types/workflow"
 
 const nodeTypes = {
@@ -143,8 +147,19 @@ function WorkflowCanvasContent() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const [nodes, setNodes, onNodesChange] = useNodesState([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+
+  // Wrap node and edge change handlers to track unsaved changes
+  const handleNodesChange = useCallback((changes: any) => {
+    onNodesChange(changes)
+    setHasUnsavedChanges(true)
+  }, [onNodesChange])
+
+  const handleEdgesChange = useCallback((changes: any) => {
+    onEdgesChange(changes)
+    setHasUnsavedChanges(true)
+  }, [onEdgesChange])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [pendingConnection, setPendingConnection] = useState<{
     source: string
@@ -163,11 +178,178 @@ function WorkflowCanvasContent() {
   const [showYamlPreview, setShowYamlPreview] = useState(false)
   const [undoStack, setUndoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
   const [redoStack, setRedoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
-  const [isSaving, setIsSaving] = useState(false) // Changed from isExporting to isSaving
+  const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [isOnline, setIsOnline] = useState(true)
+  const [apiHealthy, setApiHealthy] = useState(true)
+  const [lastSaveAttempt, setLastSaveAttempt] = useState<Date | null>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [workflowMetadata, setWorkflowMetadata] = useState<{
+    name: string
+    description: string
+  }>({
+    name: "New Workflow",
+    description: "Workflow created using the visual canvas editor"
+  })
+  const [isEditingMetadata, setIsEditingMetadata] = useState(false)
+  const [editingMetadata, setEditingMetadata] = useState<{
+    name: string
+    description: string
+  }>({
+    name: "",
+    description: ""
+  })
   const { project, fitView, getNodes, getEdges } = useReactFlow()
 
   // Get workflow ID from query params
   const workflowId = searchParams.get("id")
+
+  // Offline detection and API health monitoring
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true)
+      // Check API health when coming back online
+      checkApiHealth().then(setApiHealthy)
+    }
+    
+    const handleOffline = () => {
+      setIsOnline(false)
+      setApiHealthy(false)
+    }
+
+    // Initial online status
+    setIsOnline(navigator.onLine)
+    
+    // Check API health on mount
+    checkApiHealth().then(setApiHealthy)
+
+    // Set up event listeners
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    // Periodic API health check (every 30 seconds)
+    const healthCheckInterval = setInterval(async () => {
+      if (navigator.onLine) {
+        const healthy = await checkApiHealth()
+        setApiHealthy(healthy)
+      }
+    }, 30000)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      clearInterval(healthCheckInterval)
+    }
+  }, [])
+
+  // Track unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges && !isOnline) {
+        e.preventDefault()
+        e.returnValue = 'You have unsaved changes and are currently offline. Are you sure you want to leave?'
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedChanges, isOnline])
+
+  // Load workflow data when component mounts or workflowId changes
+  useEffect(() => {
+    const loadWorkflow = async () => {
+      if (!workflowId) {
+        // No workflow ID, load default nodes and edges
+        setNodes(initialNodes)
+        setEdges(initialEdges)
+        setWorkflowMetadata({
+          name: "New Workflow",
+          description: "Workflow created using the visual canvas editor"
+        })
+        return
+      }
+
+      setIsLoading(true)
+      setLoadError(null)
+
+      try {
+        // Check if we're online before attempting to load
+        if (!isOnline) {
+          throw new Error("Cannot load workflow while offline. Please check your internet connection.")
+        }
+
+        // Use retry logic for loading workflow
+        const workflowData = await withRetry(
+          () => getWorkflow(workflowId),
+          3, // max retries
+          1000 // base delay
+        )
+        
+        const { nodes: loadedNodes, edges: loadedEdges } = transformApiResponseToCanvas(workflowData)
+        
+        setNodes(loadedNodes)
+        setEdges(loadedEdges)
+        setWorkflowMetadata({
+          name: workflowData.name,
+          description: workflowData.description || ""
+        })
+        setHasUnsavedChanges(false) // Reset unsaved changes after successful load
+
+        toast({
+          title: "Workflow Loaded",
+          description: `Successfully loaded workflow "${workflowData.name}".`,
+        })
+
+        // Fit view after nodes are loaded
+        setTimeout(() => {
+          fitView({ padding: 0.2 })
+        }, 100)
+
+      } catch (error) {
+        let errorMessage = "Failed to load workflow"
+        let showRetry = false
+
+        if (error instanceof WorkflowApiError) {
+          if (error.status === 0) {
+            errorMessage = "Network error - please check your internet connection"
+            showRetry = true
+          } else if (error.status === 404) {
+            errorMessage = "Workflow not found - it may have been deleted"
+          } else if (error.status >= 500) {
+            errorMessage = "Server error - please try again later"
+            showRetry = true
+          } else {
+            errorMessage = error.message
+          }
+        } else if (error instanceof Error) {
+          errorMessage = error.message
+          if (errorMessage.includes("offline")) {
+            showRetry = false
+          } else {
+            showRetry = true
+          }
+        }
+        
+        setLoadError(errorMessage)
+        
+        // Load default nodes and edges as fallback
+        setNodes(initialNodes)
+        setEdges(initialEdges)
+        
+        toast({
+          title: "Error Loading Workflow",
+          description: errorMessage,
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadWorkflow()
+  }, [workflowId, setNodes, setEdges, toast, fitView])
 
   // Get edge style based on type
   const getEdgeStyle = (edgeType: string) => {
@@ -565,47 +747,242 @@ function WorkflowCanvasContent() {
     }, 100)
   }
 
-  // Handle Save Workflow (now exports backend-compatible DAG)
+  // Handle Save Workflow (supports both create and update with comprehensive error handling)
   const handleSaveWorkflow = async () => {
+    // Check offline status before attempting to save
+    if (!isOnline) {
+      toast({
+        title: "Cannot Save Offline",
+        description: "You're currently offline. Please check your internet connection and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check API health before attempting to save
+    if (!apiHealthy) {
+      toast({
+        title: "Service Unavailable",
+        description: "The workflow service is currently unavailable. Please try again later.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsSaving(true)
+    setLastSaveAttempt(new Date())
+    
     try {
       const currentNodes = getNodes()
       const currentEdges = getEdges()
 
-      // Transform to backend payload
-      const backendWorkflow: BackendWorkflow = transformWorkflowToBackendPayload(currentNodes, currentEdges)
+      // Transform to backend payload with current metadata
+      const backendWorkflow: BackendWorkflow = transformWorkflowToBackendPayload(
+        currentNodes, 
+        currentEdges,
+        workflowMetadata.name,
+        workflowMetadata.description
+      )
 
-      // Replace the file download logic with an API call
-      const response = await fetch("https://dev-workflow.pixl.ai/api/workflows/definitions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(backendWorkflow),
-      })
+      let result
+      const isUpdating = !!workflowId
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || "Failed to create workflow.")
+      if (isUpdating) {
+        // Update existing workflow with retry logic
+        result = await withRetry(
+          () => updateWorkflow(workflowId, backendWorkflow),
+          3, // max retries
+          1000 // base delay
+        )
+        toast({
+          title: "Workflow Updated!",
+          description: `Workflow "${result.name}" has been successfully updated.`,
+        })
+        setHasUnsavedChanges(false)
+        // Stay on the same page - no navigation needed
+      } else {
+        // Create new workflow with retry logic
+        result = await withRetry(
+          () => createWorkflow(backendWorkflow),
+          3, // max retries
+          1000 // base delay
+        )
+        toast({
+          title: "Workflow Created!",
+          description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
+        })
+        setHasUnsavedChanges(false)
+        // Navigate to the new workflow's canvas page
+        router.push(`/workflow-canvas?id=${result.id}`)
       }
 
-      const result = await response.json()
-      toast({
-        title: "Workflow Saved!",
-        description: `Workflow "${result.name}" (ID: ${result.id}) has been successfully created.`,
-      })
-      router.push(`/workflow/${result.id}`) // Redirect to the new workflow's page
     } catch (error: any) {
+      const isUpdating = !!workflowId
+      const operation = isUpdating ? "updating" : "creating"
+      
+      let errorMessage = `An unexpected error occurred while ${operation} the workflow.`
+      let showRetry = false
+
+      if (error instanceof WorkflowApiError) {
+        if (error.status === 0) {
+          errorMessage = `Network error while ${operation} workflow. Please check your connection and try again.`
+          showRetry = true
+        } else if (error.status === 413) {
+          errorMessage = "Workflow is too large. Please reduce the number of nodes or simplify the configuration."
+        } else if (error.status === 422) {
+          errorMessage = "Invalid workflow data. Please check your node configurations and try again."
+        } else if (error.status >= 500) {
+          errorMessage = `Server error while ${operation} workflow. Please try again later.`
+          showRetry = true
+        } else {
+          errorMessage = error.message
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message
+      }
+
       toast({
-        title: "Error saving workflow",
-        description: error?.message ?? "An unexpected error occurred while saving the workflow.",
+        title: `Error ${operation} workflow`,
+        description: errorMessage,
         variant: "destructive",
       })
-      console.error("Error saving workflow:", error)
+      console.error(`Error ${operation} workflow:`, error)
     } finally {
       setIsSaving(false)
     }
   }
+
+  // Handle Delete Workflow with comprehensive error handling
+  const handleDeleteWorkflow = async () => {
+    if (!workflowId) {
+      toast({
+        title: "Cannot Delete",
+        description: "Cannot delete a workflow that hasn't been saved yet.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check offline status before attempting to delete
+    if (!isOnline) {
+      toast({
+        title: "Cannot Delete Offline",
+        description: "You're currently offline. Please check your internet connection and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check API health before attempting to delete
+    if (!apiHealthy) {
+      toast({
+        title: "Service Unavailable",
+        description: "The workflow service is currently unavailable. Please try again later.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      // Use retry logic for deleting workflow
+      await withRetry(
+        () => deleteWorkflow(workflowId),
+        3, // max retries
+        1000 // base delay
+      )
+      
+      toast({
+        title: "Workflow Deleted!",
+        description: `Workflow "${workflowMetadata.name}" has been successfully deleted.`,
+      })
+      
+      // Navigate back to library after successful deletion
+      router.push("/library")
+      
+    } catch (error: any) {
+      let errorMessage = "An unexpected error occurred while deleting the workflow."
+
+      if (error instanceof WorkflowApiError) {
+        if (error.status === 0) {
+          errorMessage = "Network error while deleting workflow. Please check your connection and try again."
+        } else if (error.status === 404) {
+          errorMessage = "Workflow not found - it may have already been deleted."
+          // Still navigate away since the workflow doesn't exist
+          setTimeout(() => router.push("/library"), 2000)
+        } else if (error.status === 403) {
+          errorMessage = "You don't have permission to delete this workflow."
+        } else if (error.status >= 500) {
+          errorMessage = "Server error while deleting workflow. Please try again later."
+        } else {
+          errorMessage = error.message
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message
+      }
+
+      toast({
+        title: "Error deleting workflow",
+        description: errorMessage,
+        variant: "destructive",
+      })
+      console.error("Error deleting workflow:", error)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  // Handle metadata editing
+  const handleStartEditingMetadata = useCallback(() => {
+    setEditingMetadata({
+      name: workflowMetadata.name,
+      description: workflowMetadata.description
+    })
+    setIsEditingMetadata(true)
+  }, [workflowMetadata])
+
+  const handleSaveMetadata = useCallback(() => {
+    // Validate metadata
+    if (!editingMetadata.name.trim()) {
+      toast({
+        title: "Invalid Name",
+        description: "Workflow name cannot be empty.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Update metadata
+    setWorkflowMetadata({
+      name: editingMetadata.name.trim(),
+      description: editingMetadata.description.trim()
+    })
+    setHasUnsavedChanges(true)
+    setIsEditingMetadata(false)
+
+    toast({
+      title: "Metadata Updated",
+      description: "Workflow name and description have been updated. Don't forget to save your workflow.",
+    })
+  }, [editingMetadata, toast])
+
+  const handleCancelEditingMetadata = useCallback(() => {
+    setIsEditingMetadata(false)
+    setEditingMetadata({
+      name: workflowMetadata.name,
+      description: workflowMetadata.description
+    })
+  }, [workflowMetadata])
+
+  const handleMetadataKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSaveMetadata()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleCancelEditingMetadata()
+    }
+  }, [handleSaveMetadata, handleCancelEditingMetadata])
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown)
@@ -613,6 +990,34 @@ function WorkflowCanvasContent() {
       window.removeEventListener("keydown", handleKeyDown)
     }
   }, [selectedNode])
+
+  // Show loading screen while workflow is being loaded
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-screen">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center space-x-2">
+            <Button variant="ghost" size="icon" asChild>
+              <Link href={workflowId ? `/workflow/${workflowId}` : "/library"}>
+                <ArrowLeft className="h-4 w-4" />
+                <span className="sr-only">Back</span>
+              </Link>
+            </Button>
+            <h1 className="text-xl font-bold">Workflow Canvas</h1>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Loading Workflow</h2>
+            <p className="text-muted-foreground">
+              {workflowId ? "Fetching workflow data from server..." : "Initializing canvas..."}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-screen">
@@ -625,7 +1030,86 @@ function WorkflowCanvasContent() {
               <span className="sr-only">Back</span>
             </Link>
           </Button>
-          <h1 className="text-xl font-bold">Workflow Canvas</h1>
+          <div className="flex flex-col min-w-0 flex-1 max-w-md">
+            {isEditingMetadata ? (
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Input
+                    value={editingMetadata.name}
+                    onChange={(e) => setEditingMetadata(prev => ({ ...prev, name: e.target.value }))}
+                    onKeyDown={handleMetadataKeyDown}
+                    placeholder="Workflow name"
+                    className="text-xl font-bold h-8 px-2"
+                    autoFocus
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSaveMetadata}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Check className="h-4 w-4" />
+                    <span className="sr-only">Save</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCancelEditingMetadata}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Cancel</span>
+                  </Button>
+                </div>
+                <Textarea
+                  value={editingMetadata.description}
+                  onChange={(e) => setEditingMetadata(prev => ({ ...prev, description: e.target.value }))}
+                  onKeyDown={handleMetadataKeyDown}
+                  placeholder="Workflow description (optional)"
+                  className="text-sm resize-none h-16 px-2"
+                  rows={2}
+                />
+              </div>
+            ) : (
+              <div className="group cursor-pointer" onClick={handleStartEditingMetadata}>
+                <div className="flex items-center space-x-2">
+                  <h1 className="text-xl font-bold truncate">{workflowMetadata.name}</h1>
+                  <Edit2 className="h-4 w-4 opacity-0 group-hover:opacity-50 transition-opacity" />
+                </div>
+                {workflowMetadata.description ? (
+                  <p className="text-sm text-muted-foreground line-clamp-2">{workflowMetadata.description}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground opacity-50 group-hover:opacity-75 transition-opacity">
+                    Click to add description
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          {loadError && (
+            <div className="flex items-center space-x-1 text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Load Error</span>
+            </div>
+          )}
+          {!isOnline && (
+            <div className="flex items-center space-x-1 text-destructive">
+              <WifiOff className="h-4 w-4" />
+              <span className="text-sm">Offline</span>
+            </div>
+          )}
+          {isOnline && !apiHealthy && (
+            <div className="flex items-center space-x-1 text-amber-600">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Service Unavailable</span>
+            </div>
+          )}
+          {hasUnsavedChanges && (
+            <div className="flex items-center space-x-1 text-amber-600">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Unsaved Changes</span>
+            </div>
+          )}
         </div>
 
         <CollaborationIndicator count={2} />
@@ -647,16 +1131,47 @@ function WorkflowCanvasContent() {
             <Download className="h-4 w-4" />
             <span className="sr-only">Export Canvas JSON</span>
           </Button>
+          {workflowId && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" disabled={isDeleting}>
+                  {isDeleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  <span className="sr-only">Delete Workflow</span>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Workflow</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete "{workflowMetadata.name}"? This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDeleteWorkflow}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
           <Button size="sm" onClick={handleSaveWorkflow} disabled={isSaving}>
             {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Saving...
+                {workflowId ? "Updating..." : "Creating..."}
               </>
             ) : (
               <>
                 <Save className="mr-2 h-4 w-4" />
-                Save Workflow
+                {workflowId ? "Update Workflow" : "Create Workflow"}
               </>
             )}
           </Button>
@@ -677,8 +1192,8 @@ function WorkflowCanvasContent() {
           <ReactFlow
             nodes={nodes}
             edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
             onConnect={onConnect}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
@@ -781,3 +1296,32 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
