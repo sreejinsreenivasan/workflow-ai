@@ -686,6 +686,34 @@ function WorkflowCanvasContent() {
     }
   }, [selectedNode])
 
+  // Show loading screen while workflow is being loaded
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-screen">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center space-x-2">
+            <Button variant="ghost" size="icon" asChild>
+              <Link href={workflowId ? `/workflow/${workflowId}` : "/library"}>
+                <ArrowLeft className="h-4 w-4" />
+                <span className="sr-only">Back</span>
+              </Link>
+            </Button>
+            <h1 className="text-xl font-bold">Workflow Canvas</h1>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Loading Workflow</h2>
+            <p className="text-muted-foreground">
+              {workflowId ? "Fetching workflow data from server..." : "Initializing canvas..."}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col h-screen">
       {/* Header */}
@@ -697,7 +725,18 @@ function WorkflowCanvasContent() {
               <span className="sr-only">Back</span>
             </Link>
           </Button>
-          <h1 className="text-xl font-bold">Workflow Canvas</h1>
+          <div className="flex flex-col">
+            <h1 className="text-xl font-bold">{workflowMetadata.name}</h1>
+            {workflowMetadata.description && (
+              <p className="text-sm text-muted-foreground">{workflowMetadata.description}</p>
+            )}
+          </div>
+          {loadError && (
+            <div className="flex items-center space-x-1 text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Load Error</span>
+            </div>
+          )}
         </div>
 
         <CollaborationIndicator count={2} />
@@ -853,6 +892,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
