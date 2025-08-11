@@ -831,7 +831,7 @@ function WorkflowCanvasContent() {
     }
   }
 
-  // Handle Delete Workflow
+  // Handle Delete Workflow with comprehensive error handling
   const handleDeleteWorkflow = async () => {
     if (!workflowId) {
       toast({
@@ -842,9 +842,34 @@ function WorkflowCanvasContent() {
       return
     }
 
+    // Check offline status before attempting to delete
+    if (!isOnline) {
+      toast({
+        title: "Cannot Delete Offline",
+        description: "You're currently offline. Please check your internet connection and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check API health before attempting to delete
+    if (!apiHealthy) {
+      toast({
+        title: "Service Unavailable",
+        description: "The workflow service is currently unavailable. Please try again later.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsDeleting(true)
     try {
-      await deleteWorkflow(workflowId)
+      // Use retry logic for deleting workflow
+      await withRetry(
+        () => deleteWorkflow(workflowId),
+        3, // max retries
+        1000 // base delay
+      )
       
       toast({
         title: "Workflow Deleted!",
@@ -855,9 +880,29 @@ function WorkflowCanvasContent() {
       router.push("/library")
       
     } catch (error: any) {
+      let errorMessage = "An unexpected error occurred while deleting the workflow."
+
+      if (error instanceof WorkflowApiError) {
+        if (error.status === 0) {
+          errorMessage = "Network error while deleting workflow. Please check your connection and try again."
+        } else if (error.status === 404) {
+          errorMessage = "Workflow not found - it may have already been deleted."
+          // Still navigate away since the workflow doesn't exist
+          setTimeout(() => router.push("/library"), 2000)
+        } else if (error.status === 403) {
+          errorMessage = "You don't have permission to delete this workflow."
+        } else if (error.status >= 500) {
+          errorMessage = "Server error while deleting workflow. Please try again later."
+        } else {
+          errorMessage = error.message
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message
+      }
+
       toast({
         title: "Error deleting workflow",
-        description: error?.message ?? "An unexpected error occurred while deleting the workflow.",
+        description: errorMessage,
         variant: "destructive",
       })
       console.error("Error deleting workflow:", error)
@@ -1110,6 +1155,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
