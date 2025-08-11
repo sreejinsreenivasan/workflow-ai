@@ -644,8 +644,13 @@ function WorkflowCanvasContent() {
       const currentNodes = getNodes()
       const currentEdges = getEdges()
 
-      // Transform to backend payload
-      const backendWorkflow: BackendWorkflow = transformWorkflowToBackendPayload(currentNodes, currentEdges)
+      // Transform to backend payload with current metadata
+      const backendWorkflow: BackendWorkflow = transformWorkflowToBackendPayload(
+        currentNodes, 
+        currentEdges,
+        workflowMetadata.name,
+        workflowMetadata.description
+      )
 
       // Replace the file download logic with an API call
       const response = await fetch("https://dev-workflow.pixl.ai/api/workflows/definitions", {
@@ -892,6 +897,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
