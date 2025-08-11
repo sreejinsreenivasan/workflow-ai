@@ -144,8 +144,8 @@ function WorkflowCanvasContent() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+  const [nodes, setNodes, onNodesChange] = useNodesState([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [pendingConnection, setPendingConnection] = useState<{
     source: string
@@ -164,7 +164,16 @@ function WorkflowCanvasContent() {
   const [showYamlPreview, setShowYamlPreview] = useState(false)
   const [undoStack, setUndoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
   const [redoStack, setRedoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
-  const [isSaving, setIsSaving] = useState(false) // Changed from isExporting to isSaving
+  const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [workflowMetadata, setWorkflowMetadata] = useState<{
+    name: string
+    description: string
+  }>({
+    name: "New Workflow",
+    description: "Workflow created using the visual canvas editor"
+  })
   const { project, fitView, getNodes, getEdges } = useReactFlow()
 
   // Get workflow ID from query params
@@ -782,4 +791,5 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
