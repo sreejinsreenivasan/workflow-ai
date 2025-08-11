@@ -167,6 +167,7 @@ function WorkflowCanvasContent() {
   const [redoStack, setRedoStack] = useState<{ nodes: Node[]; edges: Edge[] }[]>([])
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [workflowMetadata, setWorkflowMetadata] = useState<{
     name: string
@@ -903,6 +904,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
