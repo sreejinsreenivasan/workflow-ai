@@ -254,7 +254,18 @@ function WorkflowCanvasContent() {
       setLoadError(null)
 
       try {
-        const workflowData = await getWorkflow(workflowId)
+        // Check if we're online before attempting to load
+        if (!isOnline) {
+          throw new Error("Cannot load workflow while offline. Please check your internet connection.")
+        }
+
+        // Use retry logic for loading workflow
+        const workflowData = await withRetry(
+          () => getWorkflow(workflowId),
+          3, // max retries
+          1000 // base delay
+        )
+        
         const { nodes: loadedNodes, edges: loadedEdges } = transformApiResponseToCanvas(workflowData)
         
         setNodes(loadedNodes)
@@ -263,6 +274,7 @@ function WorkflowCanvasContent() {
           name: workflowData.name,
           description: workflowData.description || ""
         })
+        setHasUnsavedChanges(false) // Reset unsaved changes after successful load
 
         toast({
           title: "Workflow Loaded",
@@ -275,9 +287,29 @@ function WorkflowCanvasContent() {
         }, 100)
 
       } catch (error) {
-        const errorMessage = error instanceof WorkflowApiError 
-          ? error.message 
-          : "Failed to load workflow"
+        let errorMessage = "Failed to load workflow"
+        let showRetry = false
+
+        if (error instanceof WorkflowApiError) {
+          if (error.status === 0) {
+            errorMessage = "Network error - please check your internet connection"
+            showRetry = true
+          } else if (error.status === 404) {
+            errorMessage = "Workflow not found - it may have been deleted"
+          } else if (error.status >= 500) {
+            errorMessage = "Server error - please try again later"
+            showRetry = true
+          } else {
+            errorMessage = error.message
+          }
+        } else if (error instanceof Error) {
+          errorMessage = error.message
+          if (errorMessage.includes("offline")) {
+            showRetry = false
+          } else {
+            showRetry = true
+          }
+        }
         
         setLoadError(errorMessage)
         
@@ -1025,6 +1057,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
