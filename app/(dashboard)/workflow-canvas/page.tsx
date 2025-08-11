@@ -193,6 +193,14 @@ function WorkflowCanvasContent() {
     name: "New Workflow",
     description: "Workflow created using the visual canvas editor"
   })
+  const [isEditingMetadata, setIsEditingMetadata] = useState(false)
+  const [editingMetadata, setEditingMetadata] = useState<{
+    name: string
+    description: string
+  }>({
+    name: "",
+    description: ""
+  })
   const { project, fitView, getNodes, getEdges } = useReactFlow()
 
   // Get workflow ID from query params
@@ -1186,6 +1194,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
