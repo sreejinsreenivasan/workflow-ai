@@ -969,6 +969,24 @@ function WorkflowCanvasContent() {
               <span className="text-sm">Load Error</span>
             </div>
           )}
+          {!isOnline && (
+            <div className="flex items-center space-x-1 text-destructive">
+              <WifiOff className="h-4 w-4" />
+              <span className="text-sm">Offline</span>
+            </div>
+          )}
+          {isOnline && !apiHealthy && (
+            <div className="flex items-center space-x-1 text-amber-600">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Service Unavailable</span>
+            </div>
+          )}
+          {hasUnsavedChanges && (
+            <div className="flex items-center space-x-1 text-amber-600">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Unsaved Changes</span>
+            </div>
+          )}
         </div>
 
         <CollaborationIndicator count={2} />
@@ -1155,6 +1173,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
