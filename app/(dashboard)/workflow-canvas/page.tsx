@@ -1030,10 +1030,60 @@ function WorkflowCanvasContent() {
               <span className="sr-only">Back</span>
             </Link>
           </Button>
-          <div className="flex flex-col">
-            <h1 className="text-xl font-bold">{workflowMetadata.name}</h1>
-            {workflowMetadata.description && (
-              <p className="text-sm text-muted-foreground">{workflowMetadata.description}</p>
+          <div className="flex flex-col min-w-0 flex-1 max-w-md">
+            {isEditingMetadata ? (
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Input
+                    value={editingMetadata.name}
+                    onChange={(e) => setEditingMetadata(prev => ({ ...prev, name: e.target.value }))}
+                    onKeyDown={handleMetadataKeyDown}
+                    placeholder="Workflow name"
+                    className="text-xl font-bold h-8 px-2"
+                    autoFocus
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSaveMetadata}
+                    className="h-8 w-8 p-0"
+                  >
+                    <Check className="h-4 w-4" />
+                    <span className="sr-only">Save</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCancelEditingMetadata}
+                    className="h-8 w-8 p-0"
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Cancel</span>
+                  </Button>
+                </div>
+                <Textarea
+                  value={editingMetadata.description}
+                  onChange={(e) => setEditingMetadata(prev => ({ ...prev, description: e.target.value }))}
+                  onKeyDown={handleMetadataKeyDown}
+                  placeholder="Workflow description (optional)"
+                  className="text-sm resize-none h-16 px-2"
+                  rows={2}
+                />
+              </div>
+            ) : (
+              <div className="group cursor-pointer" onClick={handleStartEditingMetadata}>
+                <div className="flex items-center space-x-2">
+                  <h1 className="text-xl font-bold truncate">{workflowMetadata.name}</h1>
+                  <Edit2 className="h-4 w-4 opacity-0 group-hover:opacity-50 transition-opacity" />
+                </div>
+                {workflowMetadata.description ? (
+                  <p className="text-sm text-muted-foreground line-clamp-2">{workflowMetadata.description}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground opacity-50 group-hover:opacity-75 transition-opacity">
+                    Click to add description
+                  </p>
+                )}
+              </div>
             )}
           </div>
           {loadError && (
@@ -1246,6 +1296,7 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
 
