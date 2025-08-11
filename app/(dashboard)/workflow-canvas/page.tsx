@@ -179,6 +179,68 @@ function WorkflowCanvasContent() {
   // Get workflow ID from query params
   const workflowId = searchParams.get("id")
 
+  // Load workflow data when component mounts or workflowId changes
+  useEffect(() => {
+    const loadWorkflow = async () => {
+      if (!workflowId) {
+        // No workflow ID, load default nodes and edges
+        setNodes(initialNodes)
+        setEdges(initialEdges)
+        setWorkflowMetadata({
+          name: "New Workflow",
+          description: "Workflow created using the visual canvas editor"
+        })
+        return
+      }
+
+      setIsLoading(true)
+      setLoadError(null)
+
+      try {
+        const workflowData = await getWorkflow(workflowId)
+        const { nodes: loadedNodes, edges: loadedEdges } = transformApiResponseToCanvas(workflowData)
+        
+        setNodes(loadedNodes)
+        setEdges(loadedEdges)
+        setWorkflowMetadata({
+          name: workflowData.name,
+          description: workflowData.description || ""
+        })
+
+        toast({
+          title: "Workflow Loaded",
+          description: `Successfully loaded workflow "${workflowData.name}".`,
+        })
+
+        // Fit view after nodes are loaded
+        setTimeout(() => {
+          fitView({ padding: 0.2 })
+        }, 100)
+
+      } catch (error) {
+        const errorMessage = error instanceof WorkflowApiError 
+          ? error.message 
+          : "Failed to load workflow"
+        
+        setLoadError(errorMessage)
+        
+        // Load default nodes and edges as fallback
+        setNodes(initialNodes)
+        setEdges(initialEdges)
+        
+        toast({
+          title: "Error Loading Workflow",
+          description: errorMessage,
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadWorkflow()
+  }, [workflowId, setNodes, setEdges, toast, fitView])
+
   // Get edge style based on type
   const getEdgeStyle = (edgeType: string) => {
     switch (edgeType) {
@@ -791,5 +853,6 @@ export default function WorkflowCanvasPage() {
     </ReactFlowProvider>
   )
 }
+
 
 
